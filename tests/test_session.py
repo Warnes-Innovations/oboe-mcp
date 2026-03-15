@@ -1,0 +1,295 @@
+"""Unit tests for session.py."""
+
+import json
+import pytest
+from pathlib import Path
+
+from obo_mcp.session import (
+    create_session,
+    get_item,
+    get_next,
+    list_items,
+    list_sessions,
+    mark_complete,
+    mark_skip,
+    obo_sessions_dir,
+    session_status,
+    update_field,
+    _recalc_priority,
+    _SCORE_COMPONENTS,
+)
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def sessions_dir(tmp_path):
+    d = tmp_path / ".github" / "obo_sessions"
+    d.mkdir(parents=True)
+    return d
+
+
+@pytest.fixture
+def sample_items():
+    return [
+        {"title": "Alpha", "urgency": 5, "importance": 4, "effort": 2, "dependencies": 3},
+        {"title": "Beta",  "urgency": 2, "importance": 3, "effort": 4, "dependencies": 1},
+        {"title": "Gamma", "urgency": 3, "importance": 3, "effort": 3, "dependencies": 1},
+    ]
+
+
+@pytest.fixture
+def session_file(sessions_dir, sample_items):
+    sf = sessions_dir / "session_20260314_120000.json"
+    create_session(sf, sample_items, title="Test Session", description="A test")
+    return sf
+
+
+# ---------------------------------------------------------------------------
+# Priority score
+# ---------------------------------------------------------------------------
+
+def test_recalc_priority_formula():
+    item = {"urgency": 4, "importance": 5, "effort": 2, "dependencies": 3}
+    score = _recalc_priority(item)
+    assert score == 4 + 5 + (6 - 2) + 3  # == 16
+    assert item["priority_score"] == 16
+
+
+def test_default_priority_score():
+    item = {}
+    _recalc_priority(item)
+    # defaults: urgency=3, importance=3, effort=3, dependencies=1
+    assert item["priority_score"] == 3 + 3 + (6 - 3) + 1  # == 10
+
+
+# ---------------------------------------------------------------------------
+# create_session
+# ---------------------------------------------------------------------------
+
+def test_create_session_creates_file(sessions_dir, sample_items):
+    sf = sessions_dir / "session_20260314_130000.json"
+    session = create_session(sf, sample_items, title="My Session")
+    assert sf.exists()
+    assert session["title"] == "My Session"
+    assert len(session["items"]) == 3
+
+
+def test_create_session_updates_index(sessions_dir, sample_items):
+    sf = sessions_dir / "session_20260314_140000.json"
+    create_session(sf, sample_items, title="Indexed Session")
+    idx_path = sessions_dir / "index.json"
+    assert idx_path.exists()
+    index = json.loads(idx_path.read_text())
+    files = [s["file"] for s in index["sessions"]]
+    assert sf.name in files
+
+
+def test_create_session_assigns_ids(sessions_dir, sample_items):
+    sf = sessions_dir / "session_20260314_150000.json"
+    session = create_session(sf, sample_items)
+    ids = [i["id"] for i in session["items"]]
+    assert ids == [1, 2, 3]
+
+
+def test_create_session_raises_if_exists(session_file, sample_items):
+    with pytest.raises(FileExistsError):
+        create_session(session_file, sample_items)
+
+
+def test_create_session_calculates_priority(sessions_dir):
+    items = [{"title": "X", "urgency": 5, "importance": 5, "effort": 1, "dependencies": 5}]
+    sf = sessions_dir / "session_20260314_160000.json"
+    session = create_session(sf, items)
+    assert session["items"][0]["priority_score"] == 5 + 5 + (6 - 1) + 5  # == 20
+
+
+# ---------------------------------------------------------------------------
+# get_next
+# ---------------------------------------------------------------------------
+
+def test_get_next_returns_highest_priority_pending(session_file):
+    # Alpha: 5+4+(6-2)+3 = 16, Beta: 2+3+(6-4)+1 = 8, Gamma: 3+3+(6-3)+1 = 10
+    item = get_next(session_file)
+    assert item["title"] == "Alpha"
+    assert item["priority_score"] == 16
+
+
+def test_get_next_prefers_in_progress(session_file):
+    # Mark Beta as in_progress; Alpha has higher score but in_progress takes precedence
+    update_field(session_file, 2, "status", "in_progress")
+    item = get_next(session_file)
+    assert item["title"] == "Beta"
+
+
+def test_get_next_returns_none_when_all_done(sessions_dir):
+    items = [{"title": "Done", "status": "completed"}, {"title": "Skip", "status": "skipped"}]
+    sf = sessions_dir / "session_20260314_170000.json"
+    create_session(sf, items)
+    assert get_next(sf) is None
+
+
+def test_get_next_all_pending(sessions_dir):
+    items = [
+        {"title": "Low",  "urgency": 1, "importance": 1, "effort": 5, "dependencies": 1},
+        {"title": "High", "urgency": 5, "importance": 5, "effort": 1, "dependencies": 5},
+    ]
+    sf = sessions_dir / "session_20260314_180000.json"
+    create_session(sf, items)
+    item = get_next(sf)
+    assert item["title"] == "High"
+
+
+# ---------------------------------------------------------------------------
+# mark_complete
+# ---------------------------------------------------------------------------
+
+def test_mark_complete_sets_status(session_file):
+    session = mark_complete(session_file, 1, "Fixed it")
+    item = next(i for i in session["items"] if i["id"] == 1)
+    assert item["status"] == "completed"
+    assert item["resolution"] == "Fixed it"
+
+
+def test_mark_complete_updates_index(session_file):
+    mark_complete(session_file, 1, "Done")
+    idx = json.loads((session_file.parent / "index.json").read_text())
+    entry = next(s for s in idx["sessions"] if s["file"] == session_file.name)
+    # 3 items total, 1 completed → 2 pending
+    assert entry["pending"] == 2
+
+
+def test_mark_complete_raises_on_unknown_id(session_file):
+    with pytest.raises(KeyError):
+        mark_complete(session_file, 999, "N/A")
+
+
+# ---------------------------------------------------------------------------
+# mark_skip
+# ---------------------------------------------------------------------------
+
+def test_mark_skip_sets_status(session_file):
+    session = mark_skip(session_file, 2, "Not relevant")
+    item = next(i for i in session["items"] if i["id"] == 2)
+    assert item["status"] == "skipped"
+    assert item["skip_reason"] == "Not relevant"
+
+
+def test_mark_skip_no_reason(session_file):
+    session = mark_skip(session_file, 3)
+    item = next(i for i in session["items"] if i["id"] == 3)
+    assert item["status"] == "skipped"
+
+
+# ---------------------------------------------------------------------------
+# update_field
+# ---------------------------------------------------------------------------
+
+def test_update_field_recalculates_priority_on_score_change(session_file):
+    item = update_field(session_file, 1, "urgency", "1")
+    # new: 1+4+(6-2)+3 = 12
+    assert item["priority_score"] == 1 + 4 + (6 - 2) + 3
+
+
+def test_update_field_importance_recalculates(session_file):
+    item = update_field(session_file, 1, "importance", "2")
+    # original urgency=5: 5+2+(6-2)+3 = 14
+    assert item["priority_score"] == 5 + 2 + (6 - 2) + 3
+
+
+def test_update_field_effort_recalculates(session_file):
+    item = update_field(session_file, 1, "effort", "5")
+    # 5+4+(6-5)+3 = 13
+    assert item["priority_score"] == 5 + 4 + (6 - 5) + 3
+
+
+def test_update_field_non_score_no_recalc(session_file):
+    original_score = get_item(session_file, 1)["priority_score"]
+    item = update_field(session_file, 1, "title", "New Title")
+    assert item["title"] == "New Title"
+    assert item["priority_score"] == original_score
+
+
+def test_update_field_raises_on_unknown_id(session_file):
+    with pytest.raises(KeyError):
+        update_field(session_file, 999, "title", "Ghost")
+
+
+# ---------------------------------------------------------------------------
+# list_items
+# ---------------------------------------------------------------------------
+
+def test_list_items_sorted_by_priority(session_file):
+    items = list_items(session_file)
+    scores = [i["priority_score"] for i in items]
+    assert scores == sorted(scores, reverse=True)
+
+
+def test_list_items_status_filter(session_file):
+    mark_complete(session_file, 1, "Done")
+    completed = list_items(session_file, status_filter="completed")
+    assert len(completed) == 1
+    assert completed[0]["id"] == 1
+
+
+# ---------------------------------------------------------------------------
+# session_status
+# ---------------------------------------------------------------------------
+
+def test_session_status_counts(session_file):
+    mark_complete(session_file, 1, "Done")
+    mark_skip(session_file, 2, "Skip")
+    stats = session_status(session_file)
+    assert stats["total"] == 3
+    assert stats["completed"] == 1
+    assert stats["skipped"] == 1
+    assert stats["pending"] == 1
+    assert stats["done"] == 2
+
+
+# ---------------------------------------------------------------------------
+# list_sessions
+# ---------------------------------------------------------------------------
+
+def test_list_sessions_reads_index(sessions_dir, session_file):
+    rows = list_sessions(sessions_dir)
+    assert any(r["file"] == session_file.name for r in rows)
+
+
+def test_list_sessions_fallback_no_index(tmp_path, sample_items):
+    d = tmp_path / ".github" / "obo_sessions"
+    d.mkdir(parents=True)
+    # Write session file directly without creating index
+    sf = d / "session_20260314_190000.json"
+    items = [{"title": "X", "urgency": 3, "importance": 3, "effort": 3, "dependencies": 1}]
+    import json as _json
+    from datetime import datetime
+    session_data = {
+        "session_file": sf.name,
+        "created": datetime.now().isoformat(),
+        "title": "Direct Write",
+        "description": "",
+        "status": "active",
+        "items": [dict(items[0], id=1, status="pending", category="General",
+                       description="", resolution=None, skip_reason=None, priority_score=10)],
+    }
+    sf.write_text(_json.dumps(session_data))
+    rows = list_sessions(d)
+    assert len(rows) == 1
+    assert rows[0]["file"] == sf.name
+    # Index should now be created
+    assert (d / "index.json").exists()
+
+
+def test_list_sessions_status_filter_incomplete(sessions_dir, session_file):
+    rows = list_sessions(sessions_dir, status_filter="incomplete")
+    # Session has 3 pending items → should appear
+    assert any(r["file"] == session_file.name for r in rows)
+
+
+def test_list_sessions_status_filter_completed(sessions_dir, session_file):
+    rows = list_sessions(sessions_dir, status_filter="completed")
+    # Session is active → should NOT appear
+    assert not any(r["file"] == session_file.name for r in rows)
