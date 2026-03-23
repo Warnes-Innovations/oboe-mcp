@@ -101,6 +101,15 @@ def _index_path(sessions_dir: Path) -> Path:
     return sessions_dir / "index.json"
 
 
+def _is_valid_index(index: object) -> bool:
+    """Return True if *index* has the expected top-level structure."""
+    return (
+        isinstance(index, dict)
+        and index.get("format_version") == 1
+        and isinstance(index.get("sessions"), list)
+    )
+
+
 def load_index(sessions_dir: Path) -> dict:
     idx_path = _index_path(sessions_dir)
     if idx_path.exists():
@@ -119,9 +128,43 @@ def _pending_count(session: dict) -> int:
     return len([i for i in session.get("items", []) if i.get("status") == "pending"])
 
 
+def _rebuild_index_from_files(sessions_dir: Path) -> dict:
+    """Scan all session_*.json files and return a fresh index dict (not saved)."""
+    rows = []
+    for sf in sorted(sessions_dir.glob("session_*.json")):
+        try:
+            s = load_session(sf)
+            rows.append({
+                "file": sf.name,
+                "title": s.get("title", sf.stem),
+                "status": s.get("status", "active"),
+                "pending": _pending_count(s),
+                "created": s.get("created", "")[:10],
+            })
+        except Exception:
+            rows.append({
+                "file": sf.name,
+                "title": "",
+                "status": "unreadable",
+                "pending": 0,
+                "created": "",
+            })
+    return {"format_version": 1, "last_updated": "", "sessions": rows}
+
+
 def _upsert_index(sessions_dir: Path, session: dict, session_filename: str) -> None:
-    """Add or update the index.json entry for this session."""
-    index = load_index(sessions_dir)
+    """Add or update the index.json entry for this session.
+
+    Automatically repairs a missing, corrupt, or structurally invalid index by
+    rebuilding it from the session files on disk before applying the update.
+    """
+    try:
+        index = load_index(sessions_dir)
+        if not _is_valid_index(index):
+            raise ValueError("Invalid index structure")
+    except (json.JSONDecodeError, ValueError):
+        index = _rebuild_index_from_files(sessions_dir)
+
     entry = {
         "file": session_filename,
         "title": session.get("title", session_filename),
@@ -177,40 +220,28 @@ def list_sessions(sessions_dir: Path, status_filter: str | None = None) -> list[
     """Return session summary dicts from index.json (fast path).
 
     Falls back to scanning session_*.json files if index.json is absent,
-    then rebuilds index.json.
+    corrupt, or structurally invalid, then rebuilds index.json.
 
     status_filter: 'active' | 'completed' | 'incomplete' | None
     """
     sessions_dir = Path(sessions_dir)
     idx_path = _index_path(sessions_dir)
 
+    rows = None  # None signals that a rebuild is needed
     if idx_path.exists():
-        index = load_index(sessions_dir)
-        rows = index.get("sessions", [])
-    else:
+        try:
+            index = load_index(sessions_dir)
+            if _is_valid_index(index):
+                rows = index["sessions"]
+        except (json.JSONDecodeError, ValueError):
+            rows = None  # corrupt index – fall through to rebuild
+
+    if rows is None:
         # Slow path: scan files, rebuild index
-        rows = []
-        for sf in sorted(sessions_dir.glob("session_*.json")):
-            try:
-                s = load_session(sf)
-                rows.append({
-                    "file": sf.name,
-                    "title": s.get("title", sf.stem),
-                    "status": s.get("status", "active"),
-                    "pending": _pending_count(s),
-                    "created": s.get("created", "")[:10],
-                })
-            except Exception:
-                rows.append({
-                    "file": sf.name,
-                    "title": "",
-                    "status": "unreadable",
-                    "pending": 0,
-                    "created": "",
-                })
+        rebuilt = _rebuild_index_from_files(sessions_dir)
+        rows = rebuilt["sessions"]
         if rows:
-            index = {"format_version": 1, "last_updated": "", "sessions": rows}
-            _save_index(sessions_dir, index)
+            _save_index(sessions_dir, rebuilt)
 
     # Apply status filter
     if status_filter == "active":

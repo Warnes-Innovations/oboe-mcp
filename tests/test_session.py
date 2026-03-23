@@ -10,11 +10,15 @@ from obo_mcp.session import (
     get_next,
     list_items,
     list_sessions,
+    load_index,
     mark_complete,
     mark_skip,
     obo_sessions_dir,
+    resolve_session_file,
     session_status,
     update_field,
+    _is_valid_index,
+    _rebuild_index_from_files,
     _recalc_priority,
     _SCORE_COMPONENTS,
 )
@@ -293,3 +297,193 @@ def test_list_sessions_status_filter_completed(sessions_dir, session_file):
     rows = list_sessions(sessions_dir, status_filter="completed")
     # Session is active → should NOT appear
     assert not any(r["file"] == session_file.name for r in rows)
+
+
+# ---------------------------------------------------------------------------
+# obo_sessions_dir / resolve_session_file
+# ---------------------------------------------------------------------------
+
+def test_obo_sessions_dir(tmp_path):
+    result = obo_sessions_dir(tmp_path)
+    assert result == tmp_path / ".github" / "obo_sessions"
+
+
+def test_resolve_session_file_absolute(tmp_path):
+    abs_path = tmp_path / "session_20260314_120000.json"
+    result = resolve_session_file(abs_path)
+    assert result == abs_path.resolve()
+
+
+def test_resolve_session_file_relative_with_base(tmp_path):
+    base = tmp_path
+    result = resolve_session_file("session_20260314_120000.json", base_dir=base)
+    assert result == (tmp_path / ".github" / "obo_sessions" / "session_20260314_120000.json").resolve()
+
+
+def test_resolve_session_file_relative_no_base():
+    with pytest.raises(ValueError, match="no base_dir was provided"):
+        resolve_session_file("session_20260314_120000.json")
+
+
+# ---------------------------------------------------------------------------
+# get_item
+# ---------------------------------------------------------------------------
+
+def test_get_item_found(session_file):
+    item = get_item(session_file, 1)
+    assert item is not None
+    assert item["id"] == 1
+    assert item["title"] == "Alpha"
+
+
+def test_get_item_not_found(session_file):
+    item = get_item(session_file, 999)
+    assert item is None
+
+
+def test_get_item_string_id(session_file):
+    item = get_item(session_file, "2")
+    assert item is not None
+    assert item["id"] == 2
+
+
+# ---------------------------------------------------------------------------
+# _is_valid_index
+# ---------------------------------------------------------------------------
+
+def test_is_valid_index_good():
+    assert _is_valid_index({"format_version": 1, "sessions": []}) is True
+
+
+def test_is_valid_index_wrong_version():
+    assert _is_valid_index({"format_version": 2, "sessions": []}) is False
+
+
+def test_is_valid_index_sessions_not_list():
+    assert _is_valid_index({"format_version": 1, "sessions": {}}) is False
+
+
+def test_is_valid_index_not_dict():
+    assert _is_valid_index([]) is False
+    assert _is_valid_index("corrupt") is False
+    assert _is_valid_index(None) is False
+
+
+def test_is_valid_index_missing_sessions_key():
+    assert _is_valid_index({"format_version": 1}) is False
+
+
+# ---------------------------------------------------------------------------
+# _rebuild_index_from_files
+# ---------------------------------------------------------------------------
+
+def test_rebuild_index_from_files(sessions_dir, session_file):
+    rebuilt = _rebuild_index_from_files(sessions_dir)
+    assert rebuilt["format_version"] == 1
+    assert isinstance(rebuilt["sessions"], list)
+    assert any(s["file"] == session_file.name for s in rebuilt["sessions"])
+
+
+def test_rebuild_index_from_files_empty_dir(sessions_dir):
+    rebuilt = _rebuild_index_from_files(sessions_dir)
+    assert rebuilt["sessions"] == []
+
+
+def test_rebuild_index_marks_unreadable_files(sessions_dir):
+    bad_file = sessions_dir / "session_20260314_999999.json"
+    bad_file.write_text("this is not valid json{{{{")
+    rebuilt = _rebuild_index_from_files(sessions_dir)
+    entry = next(s for s in rebuilt["sessions"] if s["file"] == bad_file.name)
+    assert entry["status"] == "unreadable"
+
+
+# ---------------------------------------------------------------------------
+# Corrupt index.json → auto-repair via list_sessions
+# ---------------------------------------------------------------------------
+
+def test_list_sessions_corrupt_json_triggers_rebuild(sessions_dir, session_file):
+    """Corrupt JSON in index.json should trigger a full rebuild."""
+    idx_path = sessions_dir / "index.json"
+    idx_path.write_text("{ this is not valid json }")
+    rows = list_sessions(sessions_dir)
+    assert any(r["file"] == session_file.name for r in rows)
+    # Index should be repaired on disk
+    repaired = json.loads(idx_path.read_text())
+    assert repaired["format_version"] == 1
+    assert any(s["file"] == session_file.name for s in repaired["sessions"])
+
+
+def test_list_sessions_wrong_format_version_triggers_rebuild(sessions_dir, session_file):
+    """An index with an unsupported format_version should trigger a rebuild."""
+    idx_path = sessions_dir / "index.json"
+    idx_path.write_text(json.dumps({
+        "format_version": 99,
+        "last_updated": "",
+        "sessions": [],
+    }))
+    rows = list_sessions(sessions_dir)
+    assert any(r["file"] == session_file.name for r in rows)
+    repaired = json.loads(idx_path.read_text())
+    assert repaired["format_version"] == 1
+
+
+def test_list_sessions_wrong_structure_triggers_rebuild(sessions_dir, session_file):
+    """An index whose sessions key is not a list should trigger a rebuild."""
+    idx_path = sessions_dir / "index.json"
+    idx_path.write_text(json.dumps({
+        "format_version": 1,
+        "last_updated": "",
+        "sessions": "not-a-list",
+    }))
+    rows = list_sessions(sessions_dir)
+    assert any(r["file"] == session_file.name for r in rows)
+
+
+def test_list_sessions_index_not_a_dict_triggers_rebuild(sessions_dir, session_file):
+    """An index that is a JSON array instead of an object should trigger a rebuild."""
+    idx_path = sessions_dir / "index.json"
+    idx_path.write_text(json.dumps([{"format_version": 1}]))
+    rows = list_sessions(sessions_dir)
+    assert any(r["file"] == session_file.name for r in rows)
+
+
+# ---------------------------------------------------------------------------
+# Corrupt index.json → auto-repair via _upsert_index (called from mark_complete)
+# ---------------------------------------------------------------------------
+
+def test_upsert_preserves_other_sessions_when_index_corrupt(sessions_dir, sample_items):
+    """mark_complete on one session must not erase other sessions from the index."""
+    sf1 = sessions_dir / "session_20260314_120000.json"
+    sf2 = sessions_dir / "session_20260314_130000.json"
+    create_session(sf1, sample_items, title="Session A")
+    create_session(sf2, sample_items, title="Session B")
+
+    # Corrupt the index
+    (sessions_dir / "index.json").write_text("CORRUPT")
+
+    # An operation on sf1 should repair the index and keep sf2
+    mark_complete(sf1, 1, "done")
+
+    idx = json.loads((sessions_dir / "index.json").read_text())
+    files = [s["file"] for s in idx["sessions"]]
+    assert sf1.name in files
+    assert sf2.name in files
+
+
+def test_upsert_repairs_wrong_format_version(sessions_dir, sample_items):
+    """_upsert_index must recover if format_version is unsupported."""
+    sf1 = sessions_dir / "session_20260314_120000.json"
+    create_session(sf1, sample_items, title="Session A")
+
+    # Overwrite index with wrong version
+    (sessions_dir / "index.json").write_text(json.dumps({
+        "format_version": 99,
+        "last_updated": "",
+        "sessions": [],
+    }))
+
+    mark_skip(sf1, 1, "skipping")
+
+    idx = json.loads((sessions_dir / "index.json").read_text())
+    assert idx["format_version"] == 1
+    assert any(s["file"] == sf1.name for s in idx["sessions"])
