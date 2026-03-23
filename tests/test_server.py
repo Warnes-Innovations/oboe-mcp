@@ -102,6 +102,17 @@ def test_obo_create_duplicate_returns_error(base_dir, session_name):
     assert result.startswith("ERROR:")
 
 
+def test_obo_create_rejects_invalid_filename(base_dir):
+    result = obo_create(
+        base_dir=base_dir,
+        title="Bad Filename",
+        description="desc",
+        items=SAMPLE_ITEMS,
+        session_filename="session_bad.json",
+    )
+    assert result.startswith("ERROR:")
+
+
 # ---------------------------------------------------------------------------
 # obo_list_sessions
 # ---------------------------------------------------------------------------

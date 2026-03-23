@@ -26,6 +26,7 @@ from obo_mcp.session import (
     obo_sessions_dir,
     session_status,
     update_field,
+    validate_session_filename,
 )
 
 mcp = FastMCP("obo-mcp", instructions="One-By-One session management tools")
@@ -72,20 +73,21 @@ def obo_create(
     from datetime import datetime
 
     sessions_dir = obo_sessions_dir(base_dir)
-    if session_filename:
-        sf = sessions_dir / session_filename
-    else:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        sf = sessions_dir / f"session_{ts}.json"
-
     try:
+        if session_filename:
+            validate_session_filename(session_filename)
+            sf = sessions_dir / session_filename
+        else:
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            sf = sessions_dir / f"session_{ts}.json"
+
         session = create_session(
             sf,
             items,
             title=title,
             description=description,
         )
-    except FileExistsError as e:
+    except (FileExistsError, ValueError) as e:
         return f"ERROR: {e}"
 
     return json.dumps({

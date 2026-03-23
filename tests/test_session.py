@@ -20,6 +20,7 @@ from obo_mcp.session import (
     resolve_session_file,
     session_status,
     update_field,
+    validate_session_filename,
     _is_valid_index,
     _rebuild_index_from_files,
     _recalc_priority,
@@ -117,6 +118,12 @@ def test_create_session_rejects_invalid_item_status(sessions_dir):
     sf = sessions_dir / "session_20260314_160500.json"
     with pytest.raises(ValueError, match="Invalid item status"):
         create_session(sf, [{"title": "Bad", "status": "blocked"}])
+
+
+def test_create_session_rejects_invalid_filename(sessions_dir, sample_items):
+    sf = sessions_dir / "bad_session_name.json"
+    with pytest.raises(ValueError, match="Invalid session filename"):
+        create_session(sf, sample_items)
 
 
 # ---------------------------------------------------------------------------
@@ -382,6 +389,18 @@ def test_resolve_session_file_relative_with_base(tmp_path):
 def test_resolve_session_file_relative_no_base():
     with pytest.raises(ValueError, match="no base_dir was provided"):
         resolve_session_file("session_20260314_120000.json")
+
+
+def test_validate_session_filename_accepts_conforming_name():
+    assert (
+        validate_session_filename("session_20260314_120000.json")
+        == "session_20260314_120000.json"
+    )
+
+
+def test_validate_session_filename_rejects_nonconforming_name():
+    with pytest.raises(ValueError, match="Invalid session filename"):
+        validate_session_filename("session_12345.json")
 
 
 # ---------------------------------------------------------------------------

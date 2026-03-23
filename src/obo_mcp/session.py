@@ -31,6 +31,16 @@ def obo_sessions_dir(base_dir: str | Path) -> Path:
     return Path(base_dir).resolve() / ".github" / "obo_sessions"
 
 
+def validate_session_filename(session_filename: str) -> str:
+    """Validate the documented session filename convention."""
+    if not _SESSION_RE.fullmatch(session_filename):
+        raise ValueError(
+            "Invalid session filename. Expected format: "
+            "session_YYYYMMDD_HHMMSS.json"
+        )
+    return session_filename
+
+
 def resolve_session_file(
     session_file: str | Path,
     base_dir: str | Path | None = None,
@@ -251,6 +261,8 @@ def create_session(
 
     Raises FileExistsError if the session file already exists.
     """
+    validate_session_filename(session_file.name)
+
     if session_file.exists():
         raise FileExistsError(f"Session file already exists: {session_file}")
 

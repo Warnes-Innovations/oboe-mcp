@@ -46,6 +46,8 @@ tool calls.
 ## Session Format
 
 Session files live at `{base_dir}/.github/obo_sessions/session_YYYYMMDD_HHMMSS.json`.
+New sessions created through `obo_create` must follow this filename pattern.
+Existing session files can still be opened by path or filename for read/update operations.
 
 Priority score formula: `urgency + importance + (6 - effort) + dependencies`
 
