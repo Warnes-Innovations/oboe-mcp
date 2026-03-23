@@ -1,5 +1,5 @@
 """
-OBO MCP Server — 12 tools for One-By-One session management.
+OBO MCP Server — 15 tools for One-By-One session management.
 
 Uses FastMCP for concise tool registration.
 """
@@ -13,12 +13,15 @@ from typing import Optional
 from mcp.server.fastmcp import FastMCP
 
 from obo_mcp.session import (
+    complete_child_session,
     complete_session,
+    create_child_session,
     create_session,
     get_item,
     get_next,
     list_items,
     list_sessions,
+    mark_blocked,
     mark_complete,
     mark_in_progress,
     mark_skip,
@@ -114,8 +117,9 @@ def obo_list_sessions(
 
     Args:
         base_dir: Project root directory
-        status_filter: Optional filter — 'active', 'completed', or 'incomplete'
-                       (incomplete = active sessions with pending items)
+        status_filter: Optional filter — 'active', 'paused', 'completed',
+                       or 'incomplete' (incomplete = active or paused sessions
+                       with open items)
     """
     sessions_dir = obo_sessions_dir(base_dir)
     if not sessions_dir.exists():
@@ -171,6 +175,16 @@ def obo_next(
         sf = _resolve(session_file, base_dir)
         item = get_next(sf)
         if item is None:
+            stats = session_status(sf)
+            if stats.get("blocked", 0) > 0:
+                return json.dumps({
+                    "message": (
+                        "No actionable items remain; all unresolved items are "
+                        "blocked"
+                    ),
+                    "blocked": stats.get("blocked", 0),
+                    "active_child_session": stats.get("active_child_session"),
+                }, indent=2)
             return json.dumps(
                 {"message": "No pending items — session complete!"}
             )
@@ -307,6 +321,45 @@ def obo_mark_skip(
 
 
 # ---------------------------------------------------------------------------
+# Tool: obo_mark_blocked
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def obo_mark_blocked(
+    session_file: str,
+    item_id: str,
+    blocker: str,
+    base_dir: Optional[str] = None,
+) -> str:
+    """Mark an item blocked and store blocker information.
+
+    Args:
+        session_file: Absolute path or filename relative to the sessions dir.
+        item_id: Item ID to mark blocked
+        blocker: Description of what is blocking progress
+        base_dir: Required if session_file is a bare filename
+    """
+    try:
+        sf = _resolve(session_file, base_dir)
+        session = mark_blocked(sf, item_id, blocker)
+        items = session.get("items", [])
+        blocked = len([i for i in items if i.get("status") == "blocked"])
+        item = next(i for i in items if str(i.get("id")) == str(item_id))
+        return json.dumps({
+            "status": "ok",
+            "item_id": item_id,
+            "action": "blocked",
+            "blocker": item.get("blocker"),
+            "total_blocked": blocked,
+            "session_status": session.get("status", "active"),
+        }, indent=2)
+    except KeyError as e:
+        return f"ERROR: {e}"
+    except _TOOL_EXCEPTIONS as e:
+        return f"ERROR: {e}"
+
+
+# ---------------------------------------------------------------------------
 # Tool: obo_update_field
 # ---------------------------------------------------------------------------
 
@@ -365,6 +418,97 @@ def obo_complete_session(
             "session_status": session.get("status", "completed"),
         }, indent=2)
     except ValueError as e:
+        return f"ERROR: {e}"
+    except _TOOL_EXCEPTIONS as e:
+        return f"ERROR: {e}"
+
+
+@mcp.tool()
+def obo_create_child_session(
+    parent_session_file: str,
+    title: str,
+    description: str,
+    items: list[dict],
+    base_dir: Optional[str] = None,
+    parent_item_id: Optional[str] = None,
+    session_filename: Optional[str] = None,
+) -> str:
+    """Create a child session, pause the parent, and step into the child.
+
+    Args:
+        parent_session_file: Parent session path or filename
+        title: Human-readable child session title
+        description: What the child session is reviewing
+        items: Child session items
+        base_dir: Required if session paths are bare filenames
+        parent_item_id: Optional parent item to block while child is active
+        session_filename: Optional explicit child session filename
+    """
+    from datetime import datetime
+
+    try:
+        parent_sf = _resolve(parent_session_file, base_dir)
+        sessions_dir = parent_sf.parent
+        if session_filename:
+            validate_session_filename(session_filename)
+            child_sf = sessions_dir / session_filename
+        else:
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            child_sf = sessions_dir / f"session_{ts}.json"
+
+        result = create_child_session(
+            parent_sf,
+            child_sf,
+            items,
+            title=title,
+            description=description,
+            parent_item_id=parent_item_id,
+        )
+        child_session = result["child_session"]
+        parent_session = result["parent_session"]
+        return json.dumps({
+            "status": "ok",
+            "action": "child_created",
+            "parent_session_file": parent_sf.name,
+            "parent_status": parent_session.get("status"),
+            "parent_item_id": parent_item_id,
+            "child_session_file": child_sf.name,
+            "child_status": child_session.get("status"),
+        }, indent=2)
+    except (FileExistsError, ValueError, KeyError) as e:
+        return f"ERROR: {e}"
+    except _TOOL_EXCEPTIONS as e:
+        return f"ERROR: {e}"
+
+
+@mcp.tool()
+def obo_complete_child_session(
+    child_session_file: str,
+    base_dir: Optional[str] = None,
+    resolution: str = "",
+) -> str:
+    """Complete a child session and resume its parent session.
+
+    Args:
+        child_session_file: Child session path or filename
+        base_dir: Required if session paths are bare filenames
+        resolution: Optional note stored on the resumed parent item
+    """
+    try:
+        child_sf = _resolve(child_session_file, base_dir)
+        result = complete_child_session(child_sf, resolution=resolution)
+        child_session = result["child_session"]
+        parent_session = result["parent_session"]
+        return json.dumps({
+            "status": "ok",
+            "action": "child_completed",
+            "child_session_file": child_sf.name,
+            "child_status": child_session.get("status"),
+            "parent_session_file": parent_session.get("session_file"),
+            "parent_status": parent_session.get("status"),
+            "active_child_session": parent_session.get("active_child_session"),
+        }, indent=2)
+    except (ValueError, KeyError) as e:
         return f"ERROR: {e}"
     except _TOOL_EXCEPTIONS as e:
         return f"ERROR: {e}"

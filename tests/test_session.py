@@ -5,13 +5,16 @@ import pytest
 from pathlib import Path
 
 from obo_mcp.session import (
+    complete_child_session,
     complete_session,
+    create_child_session,
     create_session,
     get_item,
     get_next,
     list_items,
     list_sessions,
     load_index,
+    mark_blocked,
     mark_complete,
     mark_in_progress,
     mark_skip,
@@ -114,10 +117,18 @@ def test_create_session_calculates_priority(sessions_dir):
     assert session["items"][0]["priority_score"] == 5 + 5 + (6 - 1) + 5  # == 20
 
 
-def test_create_session_rejects_invalid_item_status(sessions_dir):
+def test_create_session_accepts_blocked_item_status(sessions_dir):
     sf = sessions_dir / "session_20260314_160500.json"
-    with pytest.raises(ValueError, match="Invalid item status"):
-        create_session(sf, [{"title": "Bad", "status": "blocked"}])
+    session = create_session(
+        sf,
+        [{
+            "title": "Waiting",
+            "status": "blocked",
+            "blocker": {"summary": "Awaiting dependency"},
+        }],
+    )
+    assert session["items"][0]["status"] == "blocked"
+    assert session["items"][0]["blocker"] == {"summary": "Awaiting dependency"}
 
 
 def test_create_session_rejects_invalid_filename(sessions_dir, sample_items):
@@ -162,6 +173,38 @@ def test_get_next_all_pending(sessions_dir):
     assert item["title"] == "High"
 
 
+def test_get_next_skips_blocked_items(sessions_dir):
+    items = [
+        {
+            "title": "Blocked High",
+            "status": "blocked",
+            "blocker": {"summary": "Waiting on API access"},
+            "urgency": 5,
+            "importance": 5,
+            "effort": 1,
+            "dependencies": 5,
+        },
+        {"title": "Ready", "urgency": 3, "importance": 3, "effort": 3, "dependencies": 1},
+    ]
+    sf = sessions_dir / "session_20260314_181000.json"
+    create_session(sf, items)
+    item = get_next(sf)
+    assert item["title"] == "Ready"
+
+
+def test_get_next_raises_for_paused_parent(session_file, sessions_dir):
+    child_sf = sessions_dir / "session_20260314_181500.json"
+    create_child_session(
+        session_file,
+        child_sf,
+        [{"title": "Subtask"}],
+        title="Child",
+        parent_item_id=1,
+    )
+    with pytest.raises(ValueError, match="paused by active child session"):
+        get_next(session_file)
+
+
 # ---------------------------------------------------------------------------
 # mark_complete
 # ---------------------------------------------------------------------------
@@ -201,6 +244,23 @@ def test_mark_skip_no_reason(session_file):
     session = mark_skip(session_file, 3)
     item = next(i for i in session["items"] if i["id"] == 3)
     assert item["status"] == "skipped"
+
+
+def test_mark_blocked_sets_status_and_blocker(session_file):
+    session = mark_blocked(session_file, 2, "Waiting on schema decision")
+    item = next(i for i in session["items"] if i["id"] == 2)
+    assert item["status"] == "blocked"
+    assert item["blocker"] == {"summary": "Waiting on schema decision"}
+    assert item["blocked_at"] is not None
+
+
+def test_mark_blocked_updates_index(session_file):
+    mark_blocked(session_file, 2, "Waiting on schema decision")
+    idx = json.loads((session_file.parent / "index.json").read_text())
+    entry = next(s for s in idx["sessions"] if s["file"] == session_file.name)
+    assert entry["blocked"] == 1
+    assert entry["actionable"] == 2
+    assert entry["open"] == 3
 
 
 def test_mark_in_progress_sets_status(session_file):
@@ -256,9 +316,14 @@ def test_update_field_status_updates_index(session_file):
     assert entry["actionable"] == 3
 
 
+def test_update_field_accepts_blocked_status(session_file):
+    item = update_field(session_file, 1, "status", "blocked")
+    assert item["status"] == "blocked"
+
+
 def test_update_field_rejects_invalid_status(session_file):
     with pytest.raises(ValueError, match="Invalid item status"):
-        update_field(session_file, 1, "status", "blocked")
+        update_field(session_file, 1, "status", "stalled")
 
 
 def test_update_field_raises_on_unknown_id(session_file):
@@ -298,6 +363,13 @@ def test_session_status_counts(session_file):
     assert stats["done"] == 2
 
 
+def test_session_status_counts_blocked(session_file):
+    mark_blocked(session_file, 2, "Waiting on dependency")
+    stats = session_status(session_file)
+    assert stats["blocked"] == 1
+    assert stats["open"] == 3
+
+
 def test_session_auto_completes_when_no_actionable_items(sessions_dir):
     sf = sessions_dir / "session_20260314_171000.json"
     create_session(sf, [{"title": "Done Me"}])
@@ -311,6 +383,20 @@ def test_session_auto_completes_when_no_actionable_items(sessions_dir):
     assert entry["actionable"] == 0
 
 
+def test_complete_session_rejects_blocked_items(sessions_dir):
+    sf = sessions_dir / "session_20260314_171500.json"
+    create_session(
+        sf,
+        [{
+            "title": "Blocked",
+            "status": "blocked",
+            "blocker": {"summary": "Need DBA input"},
+        }],
+    )
+    with pytest.raises(ValueError, match="blocked"):
+        complete_session(sf)
+
+
 # ---------------------------------------------------------------------------
 # list_sessions
 # ---------------------------------------------------------------------------
@@ -320,13 +406,12 @@ def test_list_sessions_reads_index(sessions_dir, session_file):
     assert any(r["file"] == session_file.name for r in rows)
 
 
-def test_list_sessions_fallback_no_index(tmp_path, sample_items):
+def test_list_sessions_fallback_no_index(tmp_path):
     d = tmp_path / ".github" / "obo_sessions"
     d.mkdir(parents=True)
     # Write session file directly without creating index
     sf = d / "session_20260314_190000.json"
     items = [{"title": "X", "urgency": 3, "importance": 3, "effort": 3, "dependencies": 1}]
-    import json as _json
     from datetime import datetime
     session_data = {
         "session_file": sf.name,
@@ -337,7 +422,7 @@ def test_list_sessions_fallback_no_index(tmp_path, sample_items):
         "items": [dict(items[0], id=1, status="pending", category="General",
                        description="", resolution=None, skip_reason=None, priority_score=10)],
     }
-    sf.write_text(_json.dumps(session_data))
+    sf.write_text(json.dumps(session_data))
     rows = list_sessions(d)
     assert len(rows) == 1
     assert rows[0]["file"] == sf.name
@@ -357,12 +442,78 @@ def test_list_sessions_status_filter_completed(sessions_dir, session_file):
     assert not any(r["file"] == session_file.name for r in rows)
 
 
+def test_list_sessions_status_filter_paused(sessions_dir, session_file):
+    child_sf = sessions_dir / "session_20260314_194500.json"
+    create_child_session(
+        session_file,
+        child_sf,
+        [{"title": "Nested"}],
+        title="Child",
+        parent_item_id=1,
+    )
+    rows = list_sessions(sessions_dir, status_filter="paused")
+    assert any(r["file"] == session_file.name for r in rows)
+
+
 def test_list_sessions_status_filter_incomplete_includes_in_progress_only(sessions_dir):
     sf = sessions_dir / "session_20260314_195000.json"
     create_session(sf, [{"title": "Only Item"}])
     mark_in_progress(sf, 1)
     rows = list_sessions(sessions_dir, status_filter="incomplete")
     assert any(r["file"] == sf.name for r in rows)
+
+
+def test_create_child_session_pauses_parent_and_blocks_item(session_file, sessions_dir):
+    child_sf = sessions_dir / "session_20260314_200000.json"
+    result = create_child_session(
+        session_file,
+        child_sf,
+        [{"title": "Nested Task"}],
+        title="Child Session",
+        description="child",
+        parent_item_id=2,
+    )
+    parent_session = result["parent_session"]
+    child_session = result["child_session"]
+
+    assert parent_session["status"] == "paused"
+    assert parent_session["active_child_session"] == child_sf.name
+    blocked_item = next(i for i in parent_session["items"] if i["id"] == 2)
+    assert blocked_item["status"] == "blocked"
+    assert blocked_item["blocker"]["session_file"] == child_sf.name
+    assert child_session["parent_session_file"] == session_file.name
+    assert child_session["parent_item_id"] == 2
+
+
+def test_complete_child_session_resumes_parent(session_file, sessions_dir):
+    child_sf = sessions_dir / "session_20260314_201000.json"
+    create_child_session(
+        session_file,
+        child_sf,
+        [{"title": "Nested Task"}],
+        title="Child Session",
+        parent_item_id=2,
+    )
+    mark_complete(child_sf, 1, "Child done")
+
+    result = complete_child_session(child_sf, resolution="Nested work finished")
+    parent_session = result["parent_session"]
+    child_session = result["child_session"]
+
+    assert child_session["status"] == "completed"
+    assert parent_session["status"] == "active"
+    assert parent_session["active_child_session"] is None
+    parent_item = next(i for i in parent_session["items"] if i["id"] == 2)
+    assert parent_item["status"] == "pending"
+    assert parent_item["blocker"] is None
+    assert parent_item["child_session_resolution"] == "Nested work finished"
+
+
+def test_complete_child_session_requires_parent_metadata(sessions_dir):
+    sf = sessions_dir / "session_20260314_201500.json"
+    create_session(sf, [{"title": "Standalone", "status": "completed"}])
+    with pytest.raises(ValueError, match="not a child session"):
+        complete_child_session(sf)
 
 
 # ---------------------------------------------------------------------------
@@ -426,7 +577,10 @@ def test_get_item_string_id(session_file):
 
 
 def test_complete_session_raises_with_actionable_items(session_file):
-    with pytest.raises(ValueError, match="pending or in_progress"):
+    with pytest.raises(
+        ValueError,
+        match="pending, in_progress, or blocked",
+    ):
         complete_session(session_file)
 
 

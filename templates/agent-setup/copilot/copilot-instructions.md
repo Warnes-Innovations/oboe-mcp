@@ -7,6 +7,7 @@ Use the OBO MCP tools for all One-By-One review session work in this workspace.
 - Use OBO when the user asks to work through items one by one or sequentially.
 - Use OBO when multiple findings, tasks, or decisions need explicit user approval one item at a time.
 - Use OBO when the work should survive across long conversations, model restarts, or handoff to another agent.
+- Use OBO when the work may need to be reordered, blocked, or split into a nested child session.
 - Prefer normal chat for small single-step tasks where persistent queue state would add unnecessary overhead.
 
 ## Required Workflow
@@ -17,8 +18,12 @@ Use the OBO MCP tools for all One-By-One review session work in this workspace.
 - Use `obo_create` to start a new session.
 - Use `obo_merge_items` to append new findings to an existing session.
 - Use the `one-by-one` skill when available to decide whether the task should become an OBO workflow.
+- Start the session with an overview of scope, item count, major dependencies, and proposed order.
 - Use `obo_next` to fetch the next actionable item.
 - Use `obo_mark_in_progress` when beginning work on an item.
+- Use `obo_mark_blocked` when an item cannot proceed and blocker information should be preserved.
+- Use `obo_create_child_session` when a sub-problem needs its own nested OBO workflow.
+- Use `obo_complete_child_session` to close a child session and resume the parent.
 - Use `obo_mark_complete` or `obo_mark_skip` to resolve an item.
 - Use `obo_session_status` or `obo_list_items` instead of reading `index.json` directly.
 - Use `obo_complete_session` when all actionable items are resolved.
@@ -27,6 +32,8 @@ Use the OBO MCP tools for all One-By-One review session work in this workspace.
 
 - Session files live in `.github/obo_sessions/`.
 - New session filenames must follow `session_YYYYMMDD_HHMMSS.json`.
+- Item states include `pending`, `in_progress`, `blocked`, `completed`, and `skipped`.
+- Parent sessions may be `paused` while a child session is active.
 - Treat the MCP server as the source of truth for session state.
 
 ## Review Behavior

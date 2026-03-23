@@ -6,11 +6,14 @@ import json
 import pytest
 
 from obo_mcp.server import (
+    obo_complete_child_session,
     obo_complete_session,
     obo_create,
+    obo_create_child_session,
     obo_get_item,
     obo_list_items,
     obo_list_sessions,
+    obo_mark_blocked,
     obo_mark_complete,
     obo_mark_in_progress,
     obo_mark_skip,
@@ -300,6 +303,19 @@ def test_obo_mark_skip_no_reason(base_dir, session_name):
     assert data["action"] == "skipped"
 
 
+def test_obo_mark_blocked(base_dir, session_name):
+    result = obo_mark_blocked(
+        session_file=session_name,
+        item_id="2",
+        blocker="Waiting on product decision",
+        base_dir=base_dir,
+    )
+    data = json.loads(result)
+    assert data["action"] == "blocked"
+    assert data["blocker"] == {"summary": "Waiting on product decision"}
+    assert data["total_blocked"] == 1
+
+
 def test_obo_mark_in_progress(base_dir, session_name):
     result = obo_mark_in_progress(
         session_file=session_name,
@@ -357,7 +373,7 @@ def test_obo_update_field_rejects_invalid_status(base_dir, session_name):
         session_file=session_name,
         item_id="1",
         field="status",
-        value="blocked",
+        value="stalled",
         base_dir=base_dir,
     )
     assert result.startswith("ERROR:")
@@ -396,6 +412,54 @@ def test_obo_merge_items(base_dir, session_name):
     assert data["action"] == "merged"
     assert data["merged_count"] == 1
     assert data["total_items"] == 4
+
+
+def test_obo_create_child_session(base_dir, session_name):
+    result = obo_create_child_session(
+        parent_session_file=session_name,
+        title="Nested Investigation",
+        description="child flow",
+        items=[{"title": "Child item"}],
+        base_dir=base_dir,
+        parent_item_id="2",
+        session_filename="session_20260314_165000.json",
+    )
+    data = json.loads(result)
+    assert data["action"] == "child_created"
+    assert data["parent_status"] == "paused"
+    assert data["child_session_file"] == "session_20260314_165000.json"
+
+
+def test_obo_complete_child_session(base_dir, session_name):
+    create_result = obo_create_child_session(
+        parent_session_file=session_name,
+        title="Nested Investigation",
+        description="child flow",
+        items=[{"title": "Child item"}],
+        base_dir=base_dir,
+        parent_item_id="2",
+        session_filename="session_20260314_165500.json",
+    )
+    child_session_name = json.loads(create_result)["child_session_file"]
+
+    complete_item_result = obo_mark_complete(
+        session_file=child_session_name,
+        item_id="1",
+        resolution="Child done",
+        base_dir=base_dir,
+    )
+    assert json.loads(complete_item_result)["action"] == "completed"
+
+    result = obo_complete_child_session(
+        child_session_file=child_session_name,
+        base_dir=base_dir,
+        resolution="Nested work complete",
+    )
+    data = json.loads(result)
+    assert data["action"] == "child_completed"
+    assert data["child_status"] == "completed"
+    assert data["parent_status"] == "active"
+    assert data["active_child_session"] is None
 
 
 def test_obo_end_to_end_agent_workflow(base_dir):
@@ -451,6 +515,45 @@ def test_obo_end_to_end_agent_workflow(base_dir):
     )
     assert json.loads(merge_result)["merged_count"] == 1
 
+    blocked_result = obo_mark_blocked(
+        session_file=created_session_name,
+        item_id="phase-2",
+        blocker="Waiting on design sign-off",
+        base_dir=base_dir,
+    )
+    assert json.loads(blocked_result)["action"] == "blocked"
+
+    child_result = obo_create_child_session(
+        parent_session_file=created_session_name,
+        title="Design Sign-off",
+        description="resolve external blocker",
+        items=[{"title": "Get approval"}],
+        base_dir=base_dir,
+        session_filename="session_20260314_170500.json",
+    )
+    child_session_name = json.loads(child_result)["child_session_file"]
+
+    paused_parent_next = obo_next(
+        session_file=created_session_name,
+        base_dir=base_dir,
+    )
+    assert paused_parent_next.startswith("ERROR:")
+
+    child_item_complete = obo_mark_complete(
+        session_file=child_session_name,
+        item_id="1",
+        resolution="Approval received",
+        base_dir=base_dir,
+    )
+    assert json.loads(child_item_complete)["action"] == "completed"
+
+    child_close_result = obo_complete_child_session(
+        child_session_file=child_session_name,
+        base_dir=base_dir,
+        resolution="Approval path resolved",
+    )
+    assert json.loads(child_close_result)["action"] == "child_completed"
+
     assert obo_complete_session(
         session_file=created_session_name,
         base_dir=base_dir,
@@ -504,5 +607,8 @@ def test_obo_end_to_end_agent_workflow(base_dir):
         status_filter="completed",
     )
     sessions_data = json.loads(sessions_result)
-    assert sessions_data["total"] == 1
-    assert sessions_data["sessions"][0]["file"] == created_session_name
+    assert sessions_data["total"] == 2
+    assert any(
+        session["file"] == created_session_name
+        for session in sessions_data["sessions"]
+    )

@@ -16,8 +16,10 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 _ACTIONABLE_STATUSES = {"pending", "in_progress"}
+_BLOCKED_STATUSES = {"blocked"}
 _TERMINAL_STATUSES = {"completed", "skipped"}
-_VALID_ITEM_STATUSES = _ACTIONABLE_STATUSES | _TERMINAL_STATUSES
+_OPEN_ITEM_STATUSES = _ACTIONABLE_STATUSES | _BLOCKED_STATUSES
+_VALID_ITEM_STATUSES = _OPEN_ITEM_STATUSES | _TERMINAL_STATUSES
 _SCORE_COMPONENTS = {"urgency", "importance", "effort", "dependencies"}
 _SESSION_RE = re.compile(r"^session_\d{8}_\d{6}\.json$")
 
@@ -116,6 +118,8 @@ def _normalize_item(item: dict, idx: int) -> dict:
     item.setdefault("dependencies", 1)
     item.setdefault("resolution", None)
     item.setdefault("skip_reason", None)
+    item.setdefault("blocker", None)
+    item.setdefault("blocked_at", None)
     # Always compute so it matches actual components
     _recalc_priority(item)
     return item
@@ -176,9 +180,30 @@ def _actionable_count(session: dict) -> int:
     )
 
 
+def _blocked_count(session: dict) -> int:
+    return len(
+        [
+            i for i in session.get("items", [])
+            if i.get("status") in _BLOCKED_STATUSES
+        ]
+    )
+
+
+def _open_count(session: dict) -> int:
+    return len(
+        [
+            i for i in session.get("items", [])
+            if i.get("status") in _OPEN_ITEM_STATUSES
+        ]
+    )
+
+
 def _sync_session_status(session: dict) -> str:
     """Keep the session-level status in sync with item states."""
-    if _actionable_count(session) > 0:
+    if session.get("active_child_session"):
+        session["status"] = "paused"
+        session.pop("completed_at", None)
+    elif _open_count(session) > 0:
         session["status"] = "active"
         session.pop("completed_at", None)
     else:
@@ -199,8 +224,12 @@ def _rebuild_index_from_files(sessions_dir: Path) -> dict:
                 "status": s.get("status", "active"),
                 "pending": _pending_count(s),
                 "in_progress": _in_progress_count(s),
+                "blocked": _blocked_count(s),
                 "actionable": _actionable_count(s),
+                "open": _open_count(s),
                 "created": s.get("created", "")[:10],
+                "parent_session_file": s.get("parent_session_file"),
+                "active_child_session": s.get("active_child_session"),
             })
         except (OSError, ValueError, json.JSONDecodeError):
             rows.append({
@@ -209,8 +238,12 @@ def _rebuild_index_from_files(sessions_dir: Path) -> dict:
                 "status": "unreadable",
                 "pending": 0,
                 "in_progress": 0,
+                "blocked": 0,
                 "actionable": 0,
+                "open": 0,
                 "created": "",
+                "parent_session_file": None,
+                "active_child_session": None,
             })
     return {"format_version": 1, "last_updated": "", "sessions": rows}
 
@@ -238,8 +271,12 @@ def _upsert_index(
         "status": session.get("status", "active"),
         "pending": _pending_count(session),
         "in_progress": _in_progress_count(session),
+        "blocked": _blocked_count(session),
         "actionable": _actionable_count(session),
+        "open": _open_count(session),
         "created": session.get("created", "")[:10],
+        "parent_session_file": session.get("parent_session_file"),
+        "active_child_session": session.get("active_child_session"),
     }
     for i, s in enumerate(index["sessions"]):
         if s["file"] == session_filename:
@@ -259,6 +296,8 @@ def create_session(
     items: list[dict],
     title: str = "",
     description: str = "",
+    parent_session_file: str | None = None,
+    parent_item_id: str | int | None = None,
 ) -> dict:
     """Create a new session file and update index.json atomically.
 
@@ -282,6 +321,10 @@ def create_session(
         "title": title or session_file.stem,
         "description": description,
         "status": "active",
+        "parent_session_file": parent_session_file,
+        "parent_item_id": parent_item_id,
+        "child_session_files": [],
+        "active_child_session": None,
         "items": normalized,
     }
 
@@ -324,13 +367,15 @@ def list_sessions(
     # Apply status filter
     if status_filter == "active":
         rows = [r for r in rows if r.get("status") == "active"]
+    elif status_filter == "paused":
+        rows = [r for r in rows if r.get("status") == "paused"]
     elif status_filter == "completed":
         rows = [r for r in rows if r.get("status") == "completed"]
     elif status_filter == "incomplete":
         rows = [
             r for r in rows
-            if r.get("status") == "active"
-            and r.get("actionable", r.get("pending", 0)) > 0
+            if r.get("status") in {"active", "paused"}
+            and r.get("open", r.get("actionable", r.get("pending", 0))) > 0
         ]
 
     return rows
@@ -345,6 +390,7 @@ def session_status(session_file: Path) -> dict:
     skipped = len([i for i in items if i.get("status") == "skipped"])
     in_progress = len([i for i in items if i.get("status") == "in_progress"])
     pending = len([i for i in items if i.get("status") == "pending"])
+    blocked = len([i for i in items if i.get("status") == "blocked"])
     done = completed + skipped
     pct = (100 * done // total) if total > 0 else 0
 
@@ -365,9 +411,15 @@ def session_status(session_file: Path) -> dict:
         "skipped": skipped,
         "in_progress": in_progress,
         "pending": pending,
+        "blocked": blocked,
+        "open": pending + in_progress + blocked,
         "done": done,
         "pct_done": pct,
         "categories": categories,
+        "parent_session_file": session.get("parent_session_file"),
+        "parent_item_id": session.get("parent_item_id"),
+        "child_session_files": session.get("child_session_files", []),
+        "active_child_session": session.get("active_child_session"),
     }
 
 
@@ -379,6 +431,14 @@ def get_next(session_file: Path) -> dict | None:
     Returns None if no actionable items remain.
     """
     session = load_session(session_file)
+    if (
+        session.get("status") == "paused"
+        and session.get("active_child_session")
+    ):
+        raise ValueError(
+            "Session is paused by active child session: "
+            f"{session['active_child_session']}"
+        )
     items = session.get("items", [])
 
     in_progress = [i for i in items if i.get("status") == "in_progress"]
@@ -421,6 +481,24 @@ def get_item(session_file: Path, item_id: str | int) -> dict | None:
     return None
 
 
+def _require_item(session: dict, item_id: str | int) -> dict:
+    for item in session.get("items", []):
+        if str(item.get("id")) == str(item_id):
+            return item
+    raise KeyError(f"Item {item_id} not found")
+
+
+def _clear_blocker_fields(item: dict) -> None:
+    item["blocker"] = None
+    item["blocked_at"] = None
+
+
+def _blocker_payload(blocker: str | dict) -> dict:
+    if isinstance(blocker, dict):
+        return blocker
+    return {"summary": blocker}
+
+
 def mark_complete(
     session_file: Path,
     item_id: str | int,
@@ -428,15 +506,14 @@ def mark_complete(
 ) -> dict:
     """Mark an item completed with resolution text. Returns updated session."""
     session = load_session(session_file)
-    for item in session["items"]:
-        if str(item["id"]) == str(item_id):
-            item["status"] = "completed"
-            item["resolution"] = resolution
-            _sync_session_status(session)
-            save_session(session_file, session)
-            _upsert_index(session_file.parent, session, session_file.name)
-            return session
-    raise KeyError(f"Item {item_id} not found")
+    item = _require_item(session, item_id)
+    item["status"] = "completed"
+    item["resolution"] = resolution
+    _clear_blocker_fields(item)
+    _sync_session_status(session)
+    save_session(session_file, session)
+    _upsert_index(session_file.parent, session, session_file.name)
+    return session
 
 
 def mark_skip(
@@ -446,43 +523,164 @@ def mark_skip(
 ) -> dict:
     """Mark an item skipped. Returns updated session."""
     session = load_session(session_file)
-    for item in session["items"]:
-        if str(item["id"]) == str(item_id):
-            item["status"] = "skipped"
-            if reason:
-                item["skip_reason"] = reason
-            _sync_session_status(session)
-            save_session(session_file, session)
-            _upsert_index(session_file.parent, session, session_file.name)
-            return session
-    raise KeyError(f"Item {item_id} not found")
+    item = _require_item(session, item_id)
+    item["status"] = "skipped"
+    if reason:
+        item["skip_reason"] = reason
+    _clear_blocker_fields(item)
+    _sync_session_status(session)
+    save_session(session_file, session)
+    _upsert_index(session_file.parent, session, session_file.name)
+    return session
+
+
+def mark_blocked(
+    session_file: Path,
+    item_id: str | int,
+    blocker: str | dict,
+) -> dict:
+    """Mark an item blocked and store blocker metadata."""
+    session = load_session(session_file)
+    item = _require_item(session, item_id)
+    item["status"] = "blocked"
+    item["blocker"] = _blocker_payload(blocker)
+    item["blocked_at"] = datetime.now().isoformat()
+    _sync_session_status(session)
+    save_session(session_file, session)
+    _upsert_index(session_file.parent, session, session_file.name)
+    return session
 
 
 def mark_in_progress(session_file: Path, item_id: str | int) -> dict:
     """Mark an item in progress. Returns updated session."""
     session = load_session(session_file)
-    for item in session["items"]:
-        if str(item["id"]) == str(item_id):
-            item["status"] = "in_progress"
-            _sync_session_status(session)
-            save_session(session_file, session)
-            _upsert_index(session_file.parent, session, session_file.name)
-            return session
-    raise KeyError(f"Item {item_id} not found")
+    item = _require_item(session, item_id)
+    item["status"] = "in_progress"
+    _clear_blocker_fields(item)
+    _sync_session_status(session)
+    save_session(session_file, session)
+    _upsert_index(session_file.parent, session, session_file.name)
+    return session
 
 
 def complete_session(session_file: Path) -> dict:
     """Mark the session completed when no actionable items remain."""
     session = load_session(session_file)
-    if _actionable_count(session) > 0:
+    if _open_count(session) > 0:
         raise ValueError(
-            "Cannot complete session while pending or in_progress items remain"
+            "Cannot complete session while pending, in_progress, or blocked "
+            "items remain"
         )
     session["status"] = "completed"
     session.setdefault("completed_at", datetime.now().isoformat())
     save_session(session_file, session)
     _upsert_index(session_file.parent, session, session_file.name)
     return session
+
+
+def create_child_session(
+    parent_session_file: Path,
+    child_session_file: Path,
+    items: list[dict],
+    title: str = "",
+    description: str = "",
+    parent_item_id: str | int | None = None,
+) -> dict:
+    """Create a child session, pause the parent, and optionally block an item.
+    """
+    parent_session = load_session(parent_session_file)
+    if parent_session.get("status") == "completed":
+        raise ValueError(
+            "Cannot create a child session from a completed parent"
+        )
+    if parent_session.get("active_child_session"):
+        raise ValueError(
+            "Parent session already has an active child session: "
+            f"{parent_session['active_child_session']}"
+        )
+
+    if parent_item_id is not None:
+        _require_item(parent_session, parent_item_id)
+
+    child_session = create_session(
+        child_session_file,
+        items,
+        title=title,
+        description=description,
+        parent_session_file=parent_session_file.name,
+        parent_item_id=parent_item_id,
+    )
+
+    parent_session.setdefault("child_session_files", [])
+    if child_session_file.name not in parent_session["child_session_files"]:
+        parent_session["child_session_files"].append(child_session_file.name)
+    parent_session["active_child_session"] = child_session_file.name
+
+    if parent_item_id is not None:
+        parent_item = _require_item(parent_session, parent_item_id)
+        parent_item["status"] = "blocked"
+        parent_item["blocker"] = {
+            "type": "child_session",
+            "session_file": child_session_file.name,
+            "title": child_session.get("title"),
+            "summary": (
+                "Parent work is blocked until child session "
+                f"{child_session_file.name} is completed"
+            ),
+        }
+        parent_item["blocked_at"] = datetime.now().isoformat()
+
+    _sync_session_status(parent_session)
+    save_session(parent_session_file, parent_session)
+    _upsert_index(
+        parent_session_file.parent,
+        parent_session,
+        parent_session_file.name,
+    )
+
+    return {
+        "parent_session": parent_session,
+        "child_session": child_session,
+    }
+
+
+def complete_child_session(
+    child_session_file: Path,
+    resolution: str = "",
+) -> dict:
+    """Complete a child session and resume its parent session."""
+    child_session = complete_session(child_session_file)
+    parent_session_name = child_session.get("parent_session_file")
+    if not parent_session_name:
+        raise ValueError("Session is not a child session")
+
+    parent_session_file = child_session_file.parent / parent_session_name
+    parent_session = load_session(parent_session_file)
+    if parent_session.get("active_child_session") == child_session_file.name:
+        parent_session["active_child_session"] = None
+
+    parent_item_id = child_session.get("parent_item_id")
+    if parent_item_id is not None:
+        parent_item = _require_item(parent_session, parent_item_id)
+        blocker = parent_item.get("blocker") or {}
+        if blocker.get("session_file") == child_session_file.name:
+            parent_item["status"] = "pending"
+            _clear_blocker_fields(parent_item)
+            if resolution:
+                parent_item["child_session_resolution"] = resolution
+
+    _sync_session_status(parent_session)
+    save_session(parent_session_file, parent_session)
+    _upsert_index(
+        parent_session_file.parent,
+        parent_session,
+        parent_session_file.name,
+    )
+
+    return {
+        "child_session": child_session,
+        "parent_session": parent_session,
+    }
 
 
 def merge_items(session_file: Path, items: list[dict]) -> dict:
@@ -529,17 +727,17 @@ def update_field(
     Returns the updated item dict.
     """
     session = load_session(session_file)
-    for item in session["items"]:
-        if str(item["id"]) == str(item_id):
-            if field == "status":
-                value = _validate_item_status(value)
-            if field in _SCORE_COMPONENTS or field == "priority_score":
-                value = int(value)
-            item[field] = value
-            if field in _SCORE_COMPONENTS:
-                _recalc_priority(item)
-            _sync_session_status(session)
-            save_session(session_file, session)
-            _upsert_index(session_file.parent, session, session_file.name)
-            return item
-    raise KeyError(f"Item {item_id} not found")
+    item = _require_item(session, item_id)
+    if field == "status":
+        value = _validate_item_status(value)
+        if value != "blocked":
+            _clear_blocker_fields(item)
+    if field in _SCORE_COMPONENTS or field == "priority_score":
+        value = int(value)
+    item[field] = value
+    if field in _SCORE_COMPONENTS:
+        _recalc_priority(item)
+    _sync_session_status(session)
+    save_session(session_file, session)
+    _upsert_index(session_file.parent, session, session_file.name)
+    return item

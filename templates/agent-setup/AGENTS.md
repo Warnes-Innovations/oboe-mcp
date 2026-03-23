@@ -7,6 +7,7 @@ Use the OBO MCP tools for all One-By-One review session work in this repository.
 - Use OBO when the user asks to process findings, tasks, or decisions one at a time.
 - Use OBO when multiple review findings need explicit sequential approval instead of a flat summary.
 - Use OBO when the item list should be resumable and persisted outside the current chat transcript.
+- Use OBO when the work may need reordering, blocker tracking, or nested child sessions.
 - Prefer normal chat for small single-step tasks that do not need queue state.
 
 ## Required Workflow
@@ -16,8 +17,12 @@ Use the OBO MCP tools for all One-By-One review session work in this repository.
 - If an incomplete session exists, ask the user whether to resume, merge, replace, or stop.
 - Use `obo_create` to start a new session.
 - Use `obo_merge_items` to append new findings to an existing session.
+- Start the session with an overview of scope, major dependencies, and proposed order.
 - Use `obo_next` to fetch the next actionable item.
 - Use `obo_mark_in_progress` when beginning work on an item.
+- Use `obo_mark_blocked` when an item cannot proceed and the blocker should be stored.
+- Use `obo_create_child_session` when a nested sub-session is needed.
+- Use `obo_complete_child_session` to finish the child and resume the parent.
 - Use `obo_mark_complete` or `obo_mark_skip` to resolve an item.
 - Use `obo_session_status` or `obo_list_items` instead of reading `index.json` directly.
 - Use `obo_complete_session` when all actionable items are resolved.
@@ -26,6 +31,8 @@ Use the OBO MCP tools for all One-By-One review session work in this repository.
 
 - Session files live in `.github/obo_sessions/`.
 - New session filenames must follow `session_YYYYMMDD_HHMMSS.json`.
+- Item states include `pending`, `in_progress`, `blocked`, `completed`, and `skipped`.
+- Parent sessions may be `paused` while a child session is active.
 - Treat the MCP server as the source of truth for session state.
 
 ## Review Behavior

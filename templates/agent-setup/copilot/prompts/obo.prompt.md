@@ -16,18 +16,21 @@ Follow this workflow:
 4. Assign priority factors for each item using urgency, importance, effort, and dependencies.
 5. Call `obo_create` to persist the session.
 6. If adding to an existing session, call `obo_merge_items`.
-7. Present an executive summary before reviewing individual items.
+7. Present an executive summary before reviewing individual items. Include scope, item count, highest-impact items, important dependencies, and proposed order.
 8. Use `obo_next` to choose the next actionable item.
 9. Use `obo_mark_in_progress` when work begins on an item.
-10. After user approval or denial, use `obo_mark_complete` or `obo_mark_skip`.
-11. Use `obo_session_status` to report progress after each decision.
-12. When no actionable items remain, call `obo_complete_session`.
+10. If an item cannot proceed, call `obo_mark_blocked` and store blocker details instead of losing the stalled state in chat.
+11. If a sub-problem needs its own queue, call `obo_create_child_session`, finish the child workflow, then call `obo_complete_child_session` to resume the parent.
+12. After user approval or denial, use `obo_mark_complete` or `obo_mark_skip`.
+13. Use `obo_session_status` to report progress after each decision.
+14. When no actionable or blocked items remain, call `obo_complete_session`.
 
 Rules:
 
 - Never directly edit `.github/obo_sessions/*.json` or `index.json`.
 - Never synthesize session state from manual file writes when an `obo_*` tool exists.
 - Prefer OBO for multi-item workflows that need resumable queue state; prefer normal chat for one-off tasks.
+- Reorder work intentionally using impact and dependency information instead of chat order.
 - Present one item at a time and do not advance until the user explicitly approves, denies, skips, or asks to move on.
 - If the MCP surface cannot perform a requested operation, stop and tell the user what is missing.
 
