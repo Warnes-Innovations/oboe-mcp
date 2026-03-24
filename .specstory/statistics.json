@@ -1,0 +1,22 @@
+{
+  "sessions": {
+    "59f321c7-050b-4967-b05a-fb4915717ac5": {
+      "user_message_count": 1,
+      "agent_message_count": 1,
+      "start_timestamp": "2026-03-23T16:23:50-04:00",
+      "end_timestamp": "1969-12-31T19:00:00-05:00",
+      "markdown_size_bytes": 814,
+      "provider": "copilotide",
+      "last_updated": "2026-03-23T21:42:54Z"
+    },
+    "b6ffb699-83d9-4ee3-8692-cf0840fa8109": {
+      "user_message_count": 17,
+      "agent_message_count": 11,
+      "start_timestamp": "2026-03-23T15:23:39-04:00",
+      "end_timestamp": "1969-12-31T19:00:00-05:00",
+      "markdown_size_bytes": 6534,
+      "provider": "copilotide",
+      "last_updated": "2026-03-23T21:42:54Z"
+    }
+  }
+}
