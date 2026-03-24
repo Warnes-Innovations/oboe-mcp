@@ -3,7 +3,6 @@ description: "Process multiple items sequentially with priority scoring, resume 
 name: "OBO Review Session"
 argument-hint: "Optional context or item source such as a finding list, task list, or requirements"
 agent: "agent"
-tools: [oboe-mcp/*]
 ---
 
 <!--
