@@ -1,5 +1,37 @@
 {
     "chat.tools.terminal.autoApprove": {
-        "/Users/warnes/src/obo-mcp/.venv/bin/python": true
-    }
+        "/Users/warnes/src/oboe-mcp/.venv/bin/python": true
+    },
+    "python.defaultInterpreterPath": "/Users/warnes/src/oboe-mcp/.venv/bin/python",
+    "python.analysis.extraPaths": [
+        "src"
+    ],
+    "python-envs.pythonProjects": [
+        {
+            "path": ".",
+            "envManager": "ms-python.python:venv",
+            "packageManager": "ms-python.python:pip"
+        }
+    ],
+    "specstory.cloudSync.enabled": "never",
+    "workbench.colorCustomizations": {
+        "activityBar.activeBackground": "#b9e3db",
+        "activityBar.background": "#b9e3db",
+        "activityBar.foreground": "#15202b",
+        "activityBar.inactiveForeground": "#15202b99",
+        "activityBarBadge.background": "#b976c8",
+        "activityBarBadge.foreground": "#15202b",
+        "commandCenter.border": "#15202b99",
+        "sash.hoverBorder": "#b9e3db",
+        "statusBar.background": "#94d5c9",
+        "statusBar.foreground": "#15202b",
+        "statusBarItem.hoverBackground": "#6fc7b7",
+        "statusBarItem.remoteBackground": "#94d5c9",
+        "statusBarItem.remoteForeground": "#15202b",
+        "titleBar.activeBackground": "#94d5c9",
+        "titleBar.activeForeground": "#15202b",
+        "titleBar.inactiveBackground": "#94d5c999",
+        "titleBar.inactiveForeground": "#15202b99"
+    },
+    "peacock.color": "#94d5c9"
 }
