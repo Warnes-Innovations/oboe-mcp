@@ -21,9 +21,12 @@ Follow this workflow:
 9. Use `obo_mark_in_progress` when work begins on an item.
 10. If an item cannot proceed, call `obo_mark_blocked` and store blocker details instead of losing the stalled state in chat.
 11. If a sub-problem needs its own queue, call `obo_create_child_session`, finish the child workflow, then call `obo_complete_child_session` to resume the parent.
-12. After user approval or denial, use `obo_mark_complete` or `obo_mark_skip`.
-13. Use `obo_session_status` to report progress after each decision.
-14. When no actionable or blocked items remain, call `obo_complete_session`.
+12. Treat item state as two axes: lifecycle (`pending`, `in_progress`, `deferred`, `blocked`, `completed`, `skipped`) and approval (`unreviewed`, `approved`, `denied`).
+13. Use `obo_set_approval` for approval metadata such as `approval_status`, `approval_mode`, and `approval_note`.
+14. Approve Immediate means `obo_set_approval(..., approval_status="approved", approval_mode="immediate")`; Approve Delayed means `obo_set_approval(..., approval_status="approved", approval_mode="delayed")`.
+15. After user approval or denial, use `obo_mark_complete` or `obo_mark_skip`.
+16. Use `obo_session_status` to report progress after each decision.
+17. When no open items remain, call `obo_complete_session`.
 
 Rules:
 

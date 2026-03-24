@@ -1,8 +1,10 @@
-# obo-mcp
+# Oboe MCP
 
-MCP server for handling multi-item work as a durable, ordered interaction "One-By-One" (OBO) sessions.
+Structured one-by-one workflows for coding agents.
 
-Provides 15 tools for creating, navigating, and resolving items in priority-scored session files, including blocked-item handling and nested child sessions, so `/obo` workflows can use MCP operations instead of raw JSON edits.
+MCP server for durable one-by-one review workflows, with prioritized session state for coding agents.
+
+Provides 16 tools for creating, navigating, and resolving items in priority-scored session files, including blocked-item handling, first-class approval updates, and nested child sessions, so `/obo` workflows can use MCP operations instead of raw JSON edits.
 
 ## Tools
 
@@ -11,13 +13,14 @@ Provides 15 tools for creating, navigating, and resolving items in priority-scor
 | `obo_create` | Create session file + update index.json atomically |
 | `obo_list_sessions` | List sessions from index.json |
 | `obo_session_status` | Summary stats for a session |
-| `obo_next` | Next item: in_progress first, then highest-priority pending |
+| `obo_next` | Next item: in_progress first, then highest-priority pending, then deferred |
 | `obo_list_items` | All items sorted by priority_score desc |
 | `obo_get_item` | Full detail for one item |
 | `obo_mark_blocked` | Mark an item blocked and store blocker information |
 | `obo_mark_complete` | Mark item completed with resolution text |
 | `obo_mark_in_progress` | Mark item in progress |
 | `obo_mark_skip` | Mark item skipped |
+| `obo_set_approval` | Set approval metadata and optional lifecycle state |
 | `obo_complete_session` | Mark a session completed when no actionable items remain |
 | `obo_create_child_session` | Create a child session, pause the parent, and step into the child |
 | `obo_complete_child_session` | Complete a child session and resume the parent |
@@ -32,7 +35,8 @@ Compared with plain chat or an agent's built-in follow-up questions, OBO adds ca
 
 - an overview-first workflow, where the agent can begin with the scope, item count, major categories, and proposed execution order
 - explicit reprioritization based on urgency, importance, effort, and dependency pressure instead of whatever order happened to appear in chat
-- durable item states through `pending`, `in_progress`, `blocked`, `completed`, and `skipped`
+- durable lifecycle states through `pending`, `in_progress`, `deferred`, `blocked`, `completed`, and `skipped`
+- separate approval metadata through `approval_status`, `approval_mode`, `approved_at`, and `approval_note`
 - stored blocker metadata so blocked work is still visible and explainable instead of silently disappearing from the active queue
 - nested child sessions that pause a parent session, handle a sub-problem, then resume the parent session cleanly
 - first-class session lifecycle management: list, create, inspect, merge, pause, resume, and close sessions as named workflow objects
@@ -42,6 +46,38 @@ Compared with plain chat or an agent's built-in follow-up questions, OBO adds ca
 This matters most when the work spans many findings, requires explicit user approvals, depends on intermediate sub-investigations, or must survive across several agent turns. Chat is good at conversation. A structured question tool is good at getting a clean answer in the current turn. OBO is for durable workflow orchestration.
 
 Use OBO when you need controlled sequential handling, durable queue state, or nested sub-work. Use plain chat when the task is small enough that a full workflow object would add more overhead than value.
+
+## State Model
+
+OBO tracks each item on two independent axes.
+
+### Lifecycle Axis
+
+- `pending`: work is queued but not yet started
+- `in_progress`: work is actively being done now
+- `deferred`: work is approved for later execution and should stay out of the immediate review queue until the active review pass is exhausted or the user explicitly requests deferred work
+- `blocked`: work cannot continue until an external dependency or sub-problem is resolved
+- `completed`: work is finished and closed
+- `skipped`: work is intentionally not being executed
+
+### Approval Axis
+
+- `unreviewed`: no explicit user decision has been recorded yet
+- `approved`: the user has authorized the work
+- `denied`: the user has explicitly rejected the work
+
+Approval metadata fields:
+
+- `approval_status`: approval decision for the item
+- `approval_mode`: `immediate` or `delayed` when an approval timing decision was recorded
+- `approved_at`: timestamp for when approval was recorded
+- `approval_note`: optional free-text note about the approval decision
+
+Common pairings:
+
+- Approve Immediate: call `obo_set_approval(..., approval_status="approved", approval_mode="immediate")`; the item normally remains `pending` until work begins or is moved to `in_progress`
+- Approve Delayed: call `obo_set_approval(..., approval_status="approved", approval_mode="delayed")`; this records delayed approval and moves the item to `deferred`
+- Deny: set `approval_status=denied`; if the item is being closed out of the queue, pair it with `status=skipped`
 
 ## Interaction Modes
 

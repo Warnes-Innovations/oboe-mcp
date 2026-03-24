@@ -19,6 +19,7 @@ from obo_mcp.server import (
     obo_mark_skip,
     obo_merge_items,
     obo_next,
+    obo_set_approval,
     obo_session_status,
     obo_update_field,
 )
@@ -171,7 +172,9 @@ def test_obo_session_status(base_dir, session_name):
     data = json.loads(result)
     assert data["total"] == 3
     assert data["pending"] == 3
+    assert data["deferred"] == 0
     assert data["completed"] == 0
+    assert data["approval"]["unreviewed"] == 3
 
 
 # ---------------------------------------------------------------------------
@@ -198,6 +201,30 @@ def test_obo_next_no_items(base_dir):
     )
     data = json.loads(result)
     assert "message" in data
+
+
+def test_obo_next_returns_deferred_when_review_queue_is_exhausted(base_dir):
+    obo_create(
+        base_dir=base_dir,
+        title="Deferred",
+        description="",
+        items=[
+            {
+                "title": "Later",
+                "status": "deferred",
+                "approval_status": "approved",
+                "approval_mode": "delayed",
+            }
+        ],
+        session_filename="session_20260314_150500.json",
+    )
+    result = obo_next(
+        session_file="session_20260314_150500.json",
+        base_dir=base_dir,
+    )
+    data = json.loads(result)
+    assert data["status"] == "deferred"
+    assert data["approval_status"] == "approved"
 
 
 # ---------------------------------------------------------------------------
@@ -355,6 +382,72 @@ def test_obo_update_field_non_score(base_dir, session_name):
     data = json.loads(result)
     assert data["new_value"] == "Renamed"
     assert "priority_score" not in data
+
+
+def test_obo_update_field_approval_mode(base_dir, session_name):
+    result = obo_update_field(
+        session_file=session_name,
+        item_id="1",
+        field="approval_mode",
+        value="delayed",
+        base_dir=base_dir,
+    )
+    data = json.loads(result)
+    assert data["new_value"] == "delayed"
+
+
+def test_obo_set_approval_defaults_to_immediate(base_dir, session_name):
+    result = obo_set_approval(
+        session_file=session_name,
+        item_id="1",
+        approval_status="approved",
+        base_dir=base_dir,
+    )
+    data = json.loads(result)
+    assert data["action"] == "approval_updated"
+    assert data["approval_status"] == "approved"
+    assert data["approval_mode"] == "immediate"
+    assert data["lifecycle_status"] == "pending"
+
+
+def test_obo_set_approval_delayed_sets_deferred(base_dir, session_name):
+    result = obo_set_approval(
+        session_file=session_name,
+        item_id="1",
+        approval_status="approved",
+        approval_mode="delayed",
+        note="Implement after review",
+        base_dir=base_dir,
+    )
+    data = json.loads(result)
+    assert data["approval_mode"] == "delayed"
+    assert data["lifecycle_status"] == "deferred"
+    assert data["approval_note"] == "Implement after review"
+
+
+def test_obo_set_approval_rejects_invalid_combination(base_dir, session_name):
+    result = obo_set_approval(
+        session_file=session_name,
+        item_id="1",
+        approval_status="denied",
+        approval_mode="delayed",
+        base_dir=base_dir,
+    )
+    assert result.startswith("ERROR:")
+
+
+def test_obo_update_field_rejects_invalid_approval_mode(
+    base_dir,
+    session_name,
+):
+    result = obo_update_field(
+        session_file=session_name,
+        item_id="1",
+        field="approval_mode",
+        value="soon",
+        base_dir=base_dir,
+    )
+    assert result.startswith("ERROR:")
 
 
 def test_obo_update_field_unknown_id(base_dir, session_name):
@@ -567,13 +660,16 @@ def test_obo_end_to_end_agent_workflow(base_dir):
     )
     assert json.loads(complete_result)["action"] == "completed"
 
-    skip_result = obo_mark_skip(
+    delayed_approval_result = obo_set_approval(
         session_file=created_session_name,
         item_id="phase-2",
-        reason="Deferred",
+        approval_status="approved",
+        approval_mode="delayed",
         base_dir=base_dir,
     )
-    assert json.loads(skip_result)["action"] == "skipped"
+    delayed_data = json.loads(delayed_approval_result)
+    assert delayed_data["approval_mode"] == "delayed"
+    assert delayed_data["lifecycle_status"] == "deferred"
 
     final_complete_result = obo_mark_complete(
         session_file=created_session_name,
@@ -583,16 +679,31 @@ def test_obo_end_to_end_agent_workflow(base_dir):
     )
     assert json.loads(final_complete_result)["action"] == "completed"
 
+    deferred_next_result = obo_next(
+        session_file=created_session_name,
+        base_dir=base_dir,
+    )
+    assert json.loads(deferred_next_result)["id"] == "phase-2"
+
+    finish_deferred_result = obo_mark_complete(
+        session_file=created_session_name,
+        item_id="phase-2",
+        resolution="Built after review",
+        base_dir=base_dir,
+    )
+    assert json.loads(finish_deferred_result)["action"] == "completed"
+
     status_result = obo_session_status(
         session_file=created_session_name,
         base_dir=base_dir,
     )
     status_data = json.loads(status_result)
     assert status_data["status"] == "completed"
-    assert status_data["completed"] == 2
-    assert status_data["skipped"] == 1
+    assert status_data["completed"] == 3
+    assert status_data["skipped"] == 0
     assert status_data["pending"] == 0
     assert status_data["in_progress"] == 0
+    assert status_data["approval"]["approved"] == 1
 
     close_result = obo_complete_session(
         session_file=created_session_name,

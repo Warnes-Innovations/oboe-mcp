@@ -1,8 +1,8 @@
 # OBO Session Format Specification
 
-**Last Updated:** 2026-03-23 19:12 EDT
+**Last Updated:** 2026-03-24 12:12 EDT
 
-**Executive Summary:** This document specifies the on-disk format used by obo-mcp for OBO session state. It covers the session directory layout, filename rules, session JSON schema, item schema, derived fields, child-session relationships, and the companion index file.
+**Executive Summary:** This document specifies the on-disk format used by obo-mcp for OBO session state. It covers the session directory layout, filename rules, session JSON schema, item schema, the lifecycle and approval axes, derived fields, child-session relationships, and the companion index file.
 
 ## Contents
 
@@ -80,7 +80,7 @@ Each entry in `items` is a JSON object with these fields.
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
 | `id` | string or integer | yes | Item identifier. If omitted during creation, obo-mcp assigns a sequential integer starting at 1. |
-| `status` | string | yes | Item status: `pending`, `in_progress`, `blocked`, `completed`, or `skipped`. |
+| `status` | string | yes | Lifecycle status: `pending`, `in_progress`, `deferred`, `blocked`, `completed`, or `skipped`. |
 | `title` | string | yes | Short label for the item. Defaults to `Item {id}`. |
 | `category` | string | yes | Category label. Defaults to `General`. |
 | `description` | string | yes | Free-text detail for the item. Defaults to the empty string. |
@@ -93,6 +93,10 @@ Each entry in `items` is a JSON object with these fields.
 | `skip_reason` | string or null | yes | Skip reason set by `obo_mark_skip`, otherwise `null`. |
 | `blocker` | object or null | yes | Structured blocker payload when an item is blocked, otherwise `null`. |
 | `blocked_at` | string or null | yes | ISO 8601 timestamp recorded when an item becomes blocked, otherwise `null`. |
+| `approval_status` | string | yes | Approval status: `unreviewed`, `approved`, or `denied`. Defaults to `unreviewed`. |
+| `approval_mode` | string or null | yes | Approval timing mode: `immediate`, `delayed`, or `null` when no timing has been recorded. |
+| `approved_at` | string or null | yes | ISO 8601 timestamp set when approval is recorded, otherwise `null`. |
+| `approval_note` | string or null | yes | Optional note explaining the approval decision. |
 | `child_session_resolution` | string | conditional | Optional resolution note copied back to the parent item when a child session is completed with a resolution string. |
 
 Normalization defaults:
@@ -103,13 +107,28 @@ Normalization defaults:
 
 ## Status Semantics
 
-Item statuses:
+OBO stores state on two axes: lifecycle and approval.
+
+Lifecycle statuses:
 
 - `pending`: actionable work not yet started
 - `in_progress`: currently being worked
+- `deferred`: approved work that is intentionally parked until the review pass is complete or the user requests deferred work
 - `blocked`: cannot proceed; blocker state is preserved in the item
 - `completed`: resolved and closed
 - `skipped`: intentionally not pursued
+
+Approval statuses:
+
+- `unreviewed`: no explicit user decision is recorded yet
+- `approved`: the user approved the item for execution
+- `denied`: the user explicitly rejected the item
+
+Approval mode values:
+
+- `immediate`: approved for execution now
+- `delayed`: approved for later execution
+- `null`: no approval timing decision recorded
 
 Session statuses:
 
@@ -119,9 +138,10 @@ Session statuses:
 
 Open-item semantics:
 
-- Open item statuses are `pending`, `in_progress`, and `blocked`.
+- Open item statuses are `pending`, `in_progress`, `deferred`, and `blocked`.
 - Actionable item statuses are `pending` and `in_progress`.
 - Terminal item statuses are `completed` and `skipped`.
+- `deferred` stays open so it remains visible in session status and blocks session completion, but it is not treated as immediately actionable until the primary review queue is exhausted.
 
 ## Priority Score
 
@@ -134,6 +154,8 @@ $$
 Sorting rules used by the session helpers:
 
 - `obo_next` prefers `in_progress` items first.
+- It then falls back to `pending` items.
+- If no immediate review items remain, it falls back to `deferred` items.
 - Within the same status bucket, higher `priority_score` sorts first.
 - For ties, lower `id` sorts first.
 - `obo_list_items` sorts all items by descending `priority_score`, then ascending `id`.
@@ -157,9 +179,10 @@ Each session summary row contains:
 | `status` | string | yes | Session status or `unreadable` during rebuild fallback. |
 | `pending` | integer | yes | Count of pending items. |
 | `in_progress` | integer | yes | Count of in-progress items. |
+| `deferred` | integer | yes | Count of deferred items. |
 | `blocked` | integer | yes | Count of blocked items. |
 | `actionable` | integer | yes | Count of actionable items: `pending` plus `in_progress`. |
-| `open` | integer | yes | Count of open items: `pending` plus `in_progress` plus `blocked`. |
+| `open` | integer | yes | Count of open items: `pending` plus `in_progress` plus `deferred` plus `blocked`. |
 | `created` | string | yes | Session creation date truncated to `YYYY-MM-DD`. |
 | `parent_session_file` | string or null | yes | Parent session filename when present. |
 | `active_child_session` | string or null | yes | Active child session filename when present. |
@@ -180,6 +203,8 @@ The session helpers maintain several cross-field invariants:
 - Completing a child session clears `active_child_session` on the parent.
 - Completing a child session restores the parent item from `blocked` to `pending` when that item was blocked by the child session.
 - Completing a child session may also write `child_session_resolution` onto the parent item.
+- Recording delayed approval should typically pair `approval_status=approved`, `approval_mode=delayed`, and `status=deferred`.
+- Recording a denial should typically pair `approval_status=denied` with a terminal lifecycle state such as `skipped`.
 - Completing a session while any open items remain raises an error.
 
 ## Example Session File
@@ -212,6 +237,10 @@ The session helpers maintain several cross-field invariants:
       "skip_reason": null,
       "blocker": null,
       "blocked_at": null,
+      "approval_status": "approved",
+      "approval_mode": "immediate",
+      "approved_at": "2026-03-23T19:12:02.000000",
+      "approval_note": "Approved for immediate execution during review.",
       "priority_score": 15
     },
     {
@@ -228,6 +257,10 @@ The session helpers maintain several cross-field invariants:
       "skip_reason": null,
       "blocker": null,
       "blocked_at": null,
+      "approval_status": "approved",
+      "approval_mode": "immediate",
+      "approved_at": "2026-03-23T19:14:10.000000",
+      "approval_note": null,
       "priority_score": 13
     },
     {
@@ -244,6 +277,10 @@ The session helpers maintain several cross-field invariants:
       "skip_reason": null,
       "blocker": null,
       "blocked_at": null,
+      "approval_status": "unreviewed",
+      "approval_mode": null,
+      "approved_at": null,
+      "approval_note": null,
       "priority_score": 15
     },
     {
@@ -265,6 +302,10 @@ The session helpers maintain several cross-field invariants:
         "summary": "Parent work is blocked until child session session_20260323_193000.json is completed"
       },
       "blocked_at": "2026-03-23T19:30:00.654321",
+      "approval_status": "approved",
+      "approval_mode": "delayed",
+      "approved_at": "2026-03-23T19:18:55.000000",
+      "approval_note": "Approved for execution after dependency work is reviewed.",
       "priority_score": 12
     },
     {
@@ -281,6 +322,10 @@ The session helpers maintain several cross-field invariants:
       "skip_reason": null,
       "blocker": null,
       "blocked_at": null,
+      "approval_status": "unreviewed",
+      "approval_mode": null,
+      "approved_at": null,
+      "approval_note": null,
       "priority_score": 9
     }
   ]

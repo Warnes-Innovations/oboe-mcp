@@ -21,6 +21,7 @@ from obo_mcp.session import (
     merge_items,
     obo_sessions_dir,
     resolve_session_file,
+    set_approval,
     session_status,
     update_field,
     validate_session_filename,
@@ -131,6 +132,23 @@ def test_create_session_accepts_blocked_item_status(sessions_dir):
     assert session["items"][0]["blocker"] == {"summary": "Awaiting dependency"}
 
 
+def test_create_session_accepts_deferred_item_status(sessions_dir):
+    sf = sessions_dir / "session_20260314_160600.json"
+    session = create_session(
+        sf,
+        [{
+            "title": "Later",
+            "status": "deferred",
+            "approval_status": "approved",
+            "approval_mode": "delayed",
+        }],
+    )
+    item = session["items"][0]
+    assert item["status"] == "deferred"
+    assert item["approval_status"] == "approved"
+    assert item["approval_mode"] == "delayed"
+
+
 def test_create_session_rejects_invalid_filename(sessions_dir, sample_items):
     sf = sessions_dir / "bad_session_name.json"
     with pytest.raises(ValueError, match="Invalid session filename"):
@@ -190,6 +208,27 @@ def test_get_next_skips_blocked_items(sessions_dir):
     create_session(sf, items)
     item = get_next(sf)
     assert item["title"] == "Ready"
+
+
+def test_get_next_returns_deferred_when_no_pending_items(sessions_dir):
+    items = [
+        {
+            "title": "Later",
+            "status": "deferred",
+            "approval_status": "approved",
+            "approval_mode": "delayed",
+            "urgency": 5,
+            "importance": 4,
+            "effort": 2,
+            "dependencies": 3,
+        },
+        {"title": "Done", "status": "completed"},
+    ]
+    sf = sessions_dir / "session_20260314_181250.json"
+    create_session(sf, items)
+    item = get_next(sf)
+    assert item["title"] == "Later"
+    assert item["status"] == "deferred"
 
 
 def test_get_next_raises_for_paused_parent(session_file, sessions_dir):
@@ -321,9 +360,78 @@ def test_update_field_accepts_blocked_status(session_file):
     assert item["status"] == "blocked"
 
 
+def test_update_field_accepts_deferred_status(session_file):
+    item = update_field(session_file, 1, "status", "deferred")
+    assert item["status"] == "deferred"
+
+
+def test_update_field_sets_approval_status(session_file):
+    item = update_field(session_file, 1, "approval_status", "approved")
+    assert item["approval_status"] == "approved"
+    assert item["approved_at"] is not None
+
+
+def test_update_field_sets_approval_mode_and_backfills_approval_status(session_file):
+    item = update_field(session_file, 1, "approval_mode", "delayed")
+    assert item["approval_mode"] == "delayed"
+    assert item["approval_status"] == "approved"
+    assert item["approved_at"] is not None
+
+
+def test_update_field_rejects_invalid_approval_status(session_file):
+    with pytest.raises(ValueError, match="Invalid approval status"):
+        update_field(session_file, 1, "approval_status", "maybe")
+
+
+def test_update_field_rejects_invalid_approval_mode(session_file):
+    with pytest.raises(ValueError, match="Invalid approval mode"):
+        update_field(session_file, 1, "approval_mode", "soon")
+
+
 def test_update_field_rejects_invalid_status(session_file):
     with pytest.raises(ValueError, match="Invalid item status"):
         update_field(session_file, 1, "status", "stalled")
+
+
+def test_set_approval_defaults_approved_items_to_immediate(session_file):
+    item = set_approval(session_file, 1, "approved")
+    assert item["approval_status"] == "approved"
+    assert item["approval_mode"] == "immediate"
+    assert item["approved_at"] is not None
+
+
+def test_set_approval_delayed_moves_item_to_deferred(session_file):
+    item = set_approval(
+        session_file,
+        1,
+        "approved",
+        approval_mode="delayed",
+        note="Review now, implement later",
+    )
+    assert item["approval_status"] == "approved"
+    assert item["approval_mode"] == "delayed"
+    assert item["status"] == "deferred"
+    assert item["approval_note"] == "Review now, implement later"
+
+
+def test_set_approval_can_pair_denial_with_skipped_lifecycle(session_file):
+    item = set_approval(
+        session_file,
+        1,
+        "denied",
+        lifecycle_status="skipped",
+        note="Rejected during review",
+    )
+    assert item["approval_status"] == "denied"
+    assert item["approval_mode"] is None
+    assert item["approved_at"] is None
+    assert item["status"] == "skipped"
+    assert item["approval_note"] == "Rejected during review"
+
+
+def test_set_approval_rejects_mode_without_approved_status(session_file):
+    with pytest.raises(ValueError, match="approval_mode"):
+        set_approval(session_file, 1, "denied", approval_mode="delayed")
 
 
 def test_update_field_raises_on_unknown_id(session_file):
@@ -370,6 +478,15 @@ def test_session_status_counts_blocked(session_file):
     assert stats["open"] == 3
 
 
+def test_session_status_counts_deferred_and_approval(session_file):
+    update_field(session_file, 1, "approval_mode", "delayed")
+    update_field(session_file, 1, "status", "deferred")
+    stats = session_status(session_file)
+    assert stats["deferred"] == 1
+    assert stats["approval"]["approved"] == 1
+    assert stats["approval"]["unreviewed"] == 2
+
+
 def test_session_auto_completes_when_no_actionable_items(sessions_dir):
     sf = sessions_dir / "session_20260314_171000.json"
     create_session(sf, [{"title": "Done Me"}])
@@ -394,6 +511,21 @@ def test_complete_session_rejects_blocked_items(sessions_dir):
         }],
     )
     with pytest.raises(ValueError, match="blocked"):
+        complete_session(sf)
+
+
+def test_complete_session_rejects_deferred_items(sessions_dir):
+    sf = sessions_dir / "session_20260314_171550.json"
+    create_session(
+        sf,
+        [{
+            "title": "Deferred",
+            "status": "deferred",
+            "approval_status": "approved",
+            "approval_mode": "delayed",
+        }],
+    )
+    with pytest.raises(ValueError, match="deferred"):
         complete_session(sf)
 
 
@@ -434,6 +566,22 @@ def test_list_sessions_status_filter_incomplete(sessions_dir, session_file):
     rows = list_sessions(sessions_dir, status_filter="incomplete")
     # Session has 3 pending items → should appear
     assert any(r["file"] == session_file.name for r in rows)
+
+
+def test_list_sessions_status_filter_incomplete_includes_deferred_only(sessions_dir):
+    sf = sessions_dir / "session_20260314_190500.json"
+    create_session(
+        sf,
+        [{
+            "title": "Deferred",
+            "status": "deferred",
+            "approval_status": "approved",
+            "approval_mode": "delayed",
+        }],
+    )
+    rows = list_sessions(sessions_dir, status_filter="incomplete")
+    entry = next(r for r in rows if r["file"] == sf.name)
+    assert entry["deferred"] == 1
 
 
 def test_list_sessions_status_filter_completed(sessions_dir, session_file):
@@ -579,7 +727,7 @@ def test_get_item_string_id(session_file):
 def test_complete_session_raises_with_actionable_items(session_file):
     with pytest.raises(
         ValueError,
-        match="pending, in_progress, or blocked",
+        match="pending, in_progress, deferred, or blocked",
     ):
         complete_session(session_file)
 

@@ -1,5 +1,5 @@
 """
-OBO MCP Server — 15 tools for One-By-One session management.
+OBO MCP Server — 16 tools for One-By-One session management.
 
 Uses FastMCP for concise tool registration.
 """
@@ -27,6 +27,7 @@ from obo_mcp.session import (
     mark_skip,
     merge_items,
     obo_sessions_dir,
+    set_approval,
     session_status,
     update_field,
     validate_session_filename,
@@ -165,7 +166,7 @@ def obo_next(
 ) -> str:
     """Return the next item to work on.
 
-    Returns in_progress items first (highest priority_score), then pending.
+    Returns in_progress items first, then pending, then deferred.
 
     Args:
         session_file: Absolute path or filename relative to the sessions dir.
@@ -352,6 +353,57 @@ def obo_mark_blocked(
             "blocker": item.get("blocker"),
             "total_blocked": blocked,
             "session_status": session.get("status", "active"),
+        }, indent=2)
+    except KeyError as e:
+        return f"ERROR: {e}"
+    except _TOOL_EXCEPTIONS as e:
+        return f"ERROR: {e}"
+
+
+# ---------------------------------------------------------------------------
+# Tool: obo_set_approval
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def obo_set_approval(
+    session_file: str,
+    item_id: str,
+    approval_status: str,
+    base_dir: Optional[str] = None,
+    approval_mode: Optional[str] = None,
+    note: Optional[str] = None,
+    lifecycle_status: Optional[str] = None,
+) -> str:
+    """Set approval metadata and optional lifecycle state for an item.
+
+    Args:
+        session_file: Absolute path or filename relative to the sessions dir.
+        item_id: Item ID to update
+        approval_status: Approval value: 'unreviewed', 'approved', or 'denied'
+        base_dir: Required if session_file is a bare filename
+        approval_mode: Optional timing mode: 'immediate' or 'delayed'
+        note: Optional approval note to store on the item
+        lifecycle_status: Optional lifecycle status to set alongside approval
+    """
+    try:
+        sf = _resolve(session_file, base_dir)
+        item = set_approval(
+            sf,
+            item_id,
+            approval_status,
+            approval_mode=approval_mode,
+            note=note,
+            lifecycle_status=lifecycle_status,
+        )
+        return json.dumps({
+            "status": "ok",
+            "item_id": item_id,
+            "action": "approval_updated",
+            "approval_status": item.get("approval_status"),
+            "approval_mode": item.get("approval_mode"),
+            "approved_at": item.get("approved_at"),
+            "approval_note": item.get("approval_note"),
+            "lifecycle_status": item.get("status"),
         }, indent=2)
     except KeyError as e:
         return f"ERROR: {e}"
@@ -560,7 +612,8 @@ def obo_update_field(
     Args:
         session_file: Absolute path or filename relative to the sessions dir.
         item_id: Item ID to update
-        field: Field name (e.g. 'urgency', 'title', 'description', 'status')
+        field: Field name (e.g. 'urgency', 'title', 'description',
+               'status', 'approval_status', 'approval_mode')
         value: New value. Numeric score fields are cast automatically.
         base_dir: Required if session_file is a bare filename
     """

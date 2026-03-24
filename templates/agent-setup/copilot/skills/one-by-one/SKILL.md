@@ -30,6 +30,7 @@ If `obo-mcp` is unavailable, stop and surface the blocker instead of silently fa
 | Mark item complete | `obo_mark_complete(session_file, item_id, resolution, base_dir?)` |
 | Skip item | `obo_mark_skip(session_file, item_id, base_dir?, reason?)` |
 | Mark item in progress | `obo_mark_in_progress(session_file, item_id, base_dir?)` |
+| Set approval | `obo_set_approval(session_file, item_id, approval_status, base_dir?, approval_mode?, note?, lifecycle_status?)` |
 | Create child session | `obo_create_child_session(parent_session_file, title, description, items, base_dir?, parent_item_id?, session_filename?)` |
 | Complete child session | `obo_complete_child_session(child_session_file, base_dir?, resolution?)` |
 | Update a field | `obo_update_field(session_file, item_id, field, value, base_dir?)` |
@@ -43,9 +44,31 @@ If `obo-mcp` is unavailable, stop and surface the blocker instead of silently fa
 
 Defaults when not supplied: urgency=3, importance=3, effort=3, dependencies=1
 
-## Item Status Values
+## Two State Axes
 
-`pending` | `in_progress` | `blocked` | `completed` | `skipped`
+Lifecycle status values:
+
+`pending` | `in_progress` | `deferred` | `blocked` | `completed` | `skipped`
+
+Approval status values:
+
+`unreviewed` | `approved` | `denied`
+
+Approval mode values:
+
+`immediate` | `delayed` | `null`
+
+Definitions:
+
+- `pending`: queued but not started
+- `in_progress`: actively being worked
+- `deferred`: approved to do later; still open, but held behind the primary review queue
+- `blocked`: cannot continue until the blocker is resolved
+- `completed`: finished and closed
+- `skipped`: intentionally not being executed
+- `unreviewed`: no approval decision has been recorded yet
+- `approved`: the user authorized the work
+- `denied`: the user explicitly rejected the work
 
 ## Session Status Values
 
@@ -61,6 +84,8 @@ Defaults when not supplied: urgency=3, importance=3, effort=3, dependencies=1
 6. Present one item at a time.
 7. Mark items `blocked` when progress cannot continue and store the blocker.
 8. Create a child session when a sub-problem needs its own sequential queue.
-9. Do not advance until the user explicitly approves, denies, skips, blocks, or asks to continue.
+9. Use `obo_set_approval` for approval metadata such as `approval_status`, `approval_mode`, and `approval_note`.
+10. Treat Approve Delayed as a single `obo_set_approval` call with `approval_status=approved` and `approval_mode=delayed`.
+11. Do not advance until the user explicitly approves, denies, skips, blocks, or asks to continue.
 
 For the full step-by-step conversational workflow, use the packaged `/obo` prompt at `.github/prompts/obo.prompt.md`.

@@ -24,6 +24,7 @@ Use the OBO MCP tools for all One-By-One review session work in this workspace.
 - Use `obo_mark_blocked` when an item cannot proceed and blocker information should be preserved.
 - Use `obo_create_child_session` when a sub-problem needs its own nested OBO workflow.
 - Use `obo_complete_child_session` to close a child session and resume the parent.
+- Use `obo_set_approval` to record approval decisions, timing, and delayed-review transitions.
 - Use `obo_mark_complete` or `obo_mark_skip` to resolve an item.
 - Use `obo_session_status` or `obo_list_items` instead of reading `index.json` directly.
 - Use `obo_complete_session` when all actionable items are resolved.
@@ -32,7 +33,8 @@ Use the OBO MCP tools for all One-By-One review session work in this workspace.
 
 - Session files live in `.github/obo_sessions/`.
 - New session filenames must follow `session_YYYYMMDD_HHMMSS.json`.
-- Item states include `pending`, `in_progress`, `blocked`, `completed`, and `skipped`.
+- Item lifecycle states include `pending`, `in_progress`, `deferred`, `blocked`, `completed`, and `skipped`.
+- Item approval states include `unreviewed`, `approved`, and `denied`; approval timing is stored in `approval_mode` as `immediate`, `delayed`, or `null`.
 - Parent sessions may be `paused` while a child session is active.
 - Treat the MCP server as the source of truth for session state.
 
