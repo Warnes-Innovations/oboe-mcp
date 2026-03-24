@@ -1,3 +1,11 @@
+<!--
+Copyright (C) 2026 Gregory R. Warnes
+SPDX-License-Identifier: AGPL-3.0-or-later
+
+This file is part of Oboe MCP.
+For commercial licensing, contact greg@warnes-innovations.com
+-->
+
 # Oboe MCP
 
 Structured one-by-one workflows for coding agents.
@@ -5,6 +13,9 @@ Structured one-by-one workflows for coding agents.
 MCP server for durable one-by-one review workflows, with prioritized session state for coding agents.
 
 Provides 16 tools for creating, navigating, and resolving items in priority-scored session files, including blocked-item handling, first-class approval updates, and nested child sessions, so `/obo` workflows can use MCP operations instead of raw JSON edits.
+
+Licensed under `AGPL-3.0-or-later` with commercial licensing available.
+See `LICENSE` for full terms.
 
 ## Tools
 

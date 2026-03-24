@@ -3,6 +3,14 @@ name: one-by-one
 description: Process multiple items sequentially with priority scoring and focused navigation. Use when the user asks to work through a list of tasks, findings, or decisions one item at a time, or when resumable OBO session state is needed.
 ---
 
+<!--
+Copyright (C) 2026 Gregory R. Warnes
+SPDX-License-Identifier: AGPL-3.0-or-later
+
+This file is part of Oboe MCP.
+For commercial licensing, contact greg@warnes-innovations.com
+-->
+
 Process multiple items sequentially with priority scoring, dependency analysis, and persistent session state.
 
 ## When to Use

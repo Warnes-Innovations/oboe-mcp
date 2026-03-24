@@ -1,3 +1,11 @@
+<!--
+Copyright (C) 2026 Gregory R. Warnes
+SPDX-License-Identifier: AGPL-3.0-or-later
+
+This file is part of Oboe MCP.
+For commercial licensing, contact greg@warnes-innovations.com
+-->
+
 # LinkedIn Post Draft
 
 We built a small MCP server for a problem that comes up constantly with coding agents: handling multi-item work without losing track of what was already reviewed, approved, blocked, skipped, or deferred.

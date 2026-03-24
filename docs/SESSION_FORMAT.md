@@ -1,3 +1,11 @@
+<!--
+Copyright (C) 2026 Gregory R. Warnes
+SPDX-License-Identifier: AGPL-3.0-or-later
+
+This file is part of Oboe MCP.
+For commercial licensing, contact greg@warnes-innovations.com
+-->
+
 # OBO Session Format Specification
 
 **Last Updated:** 2026-03-24 12:12 EDT

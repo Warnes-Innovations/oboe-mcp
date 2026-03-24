@@ -2,6 +2,7 @@
 name = "oboe-mcp"
 version = "0.1.0"
 description = "MCP server for durable one-by-one review workflows, with prioritized session state for coding agents."
+license = {text = "AGPL-3.0-or-later"}
 requires-python = ">=3.11"
 dependencies = ["mcp>=1.0"]
 
