@@ -1,6 +1,6 @@
 # obo-mcp
 
-MCP server for managing One-By-One (OBO) review sessions.
+MCP server for handling multi-item work as a durable, ordered interaction "One-By-One" (OBO) sessions.
 
 Provides 15 tools for creating, navigating, and resolving items in priority-scored session files, including blocked-item handling and nested child sessions, so `/obo` workflows can use MCP operations instead of raw JSON edits.
 
@@ -23,28 +23,6 @@ Provides 15 tools for creating, navigating, and resolving items in priority-scor
 | `obo_complete_child_session` | Complete a child session and resume the parent |
 | `obo_merge_items` | Append new items to an existing session and reactivate it |
 | `obo_update_field` | Update any field; auto-recalculates priority_score |
-
-## Installation
-
-**Phase A (local dev):**
-
-```json
-"obo-mcp": {
-  "type": "stdio",
-  "command": "uvx",
-  "args": ["--from", "/Users/warnes/src/obo-mcp", "obo-mcp"]
-}
-```
-
-**Phase C (GitHub URL):**
-
-```json
-"obo-mcp": {
-  "type": "stdio",
-  "command": "uvx",
-  "args": ["--from", "git+https://github.com/warnes-innovations/obo-mcp", "obo-mcp"]
-}
-```
 
 ## Why OBO Sessions
 
@@ -84,25 +62,328 @@ Example progression:
 
 ### Toy Example: Five Review Items
 
-Suppose an agent reviews a small toy to-do app and finds five items:
+Suppose an agent reviews a small toy to-do app and finds five items in this raw discovery order:
 
-1. Fix password logging in the login handler.
-2. Add missing input validation on the create-task endpoint.
-3. Resolve a race condition in the background sync job.
-4. Improve an ambiguous settings label in the UI.
-5. Add a regression test for duplicate task IDs.
+1. Improve an ambiguous settings label in the UI.
+2. Resolve a race condition in the background sync job.
+3. Add a regression test for duplicate task IDs.
+4. Add missing input validation on the create-task endpoint.
+5. Fix password logging in the login handler.
 
-| Standard chat | askQuestions style interaction | One-by-One session |
-| --- | --- | --- |
-| The agent posts all 5 findings in one message and asks what to do next. | The agent can ask a focused question such as "Which of these five items should we do first?" or "Resume, merge, replace, or stop?" | The agent creates a session containing all 5 items, starts with an overview, assigns priority factors, and presents them in order. |
-| The user might reply "do 1, 2, and 5 first," but the conversation is now the only source of truth. | The user gets cleaner choices, but the agent still has to track the full 5-item list elsewhere. | Item 1 can be marked `in_progress`, completed, blocked with stored blocker details, or skipped, then the agent can continue with state preserved. |
-| If item 3 turns out to require a separate dependency investigation, that detour has to be tracked informally in chat. | The tool can help choose the next step, but it does not create a nested workflow object by itself. | If item 3 needs a sub-investigation, the agent can open a child session, pause the parent, complete the child, then resume the parent. |
-| If the session is interrupted, another agent has to reconstruct which of the 5 items were already accepted or finished. | If the agent restarts, the menu interaction is gone unless some other persistence layer was added. | If the session is interrupted, another agent can resume the saved OBO session and continue from the next unresolved item. |
-| Good when the user only wants a quick overview of the 5 findings. | Good when the next step is a single short decision about the 5 findings. | Good when the user wants the 5 findings handled sequentially with explicit approvals and durable progress. |
+#### Standard chat
 
-## Agent Setup
+**Agent:**
 
-Installing the MCP server gives agents access to the `obo_*` tools, but it does not by itself guarantee that agents will use them correctly. To make agent behavior reliable, distribute both the MCP server configuration and shared agent instructions.
+> I found five issues in the toy app:
+> Issue 1: Improve an ambiguous settings label in the UI.
+> Issue 2: Resolve a race condition in the background sync job.
+> Issue 3: Add a regression test for duplicate task IDs.
+> Issue 4: Add missing input validation on the create-task endpoint.
+> Issue 5: Fix password logging in the login handler.
+>
+> What do you want to do next?
+
+**User:**
+
+> Do 4 and 2 first.
+
+**Commentary**:
+
+- This is fast, but the chat itself becomes the only record of the sequence, the dependency between items 4 and 3 is implicit.
+- The status of the other issues is not captured, and the user will need to explicitly request that the agent display or work on the other issues.
+- If the session is interrupted, another agent would have to reconstruct state from the transcript.
+
+#### askQuestions-style chat
+
+**Agent:**
+
+> I found five issues. Which should we do first?
+>
+> Options:
+> • 4. Add missing input validation on the create-task endpoint
+> • 2. Resolve a race condition in the background sync job
+> • 5. Fix password logging in the login handler
+> • 3. Add a regression test for duplicate task IDs
+> • 1. Improve an ambiguous settings label in the UI
+
+**User:**
+
+> 4
+
+**Agent:**
+
+> Next action?
+>
+> Options:
+> • Continue with 2
+> • Reorder the remaining list
+> • Stop
+
+**Commentary**:
+
+- This gives cleaner user choices than plain chat, but the tool still does not create a durable, dependency-aware workflow object by itself.
+- The status of the other issues is still not captured, and the user will need to explicitly request that the agent display or work on the other issues.
+- Likewise, if the session is interrupted, another agent would have to reconstruct state from the transcript.
+
+#### One-by-One session
+
+Following the OBO agent prompt instructions, the agent assigns this ordering logic:
+
+- Item 4 goes first because the create-task endpoint behavior should be stabilized before the follow-up regression test is written.
+- Item 2 comes next because the race condition can affect correctness across the sync flow and may require a nested investigation session.
+- Item 5 follows because it is an important security fix, but it does not block the validation and concurrency work.
+- Item 3 stays behind item 4 because the regression test should lock in the final validation behavior instead of preceding it.
+- Item 1 is still useful, but it is low impact compared with the other four items, so it comes last.
+
+**Agent:**
+
+> I created an OBO session for 5 findings.
+>
+> **Executive summary:**
+> • Total items: 5
+> • Categories: 1 API correctness, 1 concurrency, 1 security, 1 testing, 1 UX
+> • Priority order: 4, 2, 5, 3, 1
+> • Estimated effort: 11
+> • Critical items: 3
+> • Dependency note: item 3 follows item 4 so the regression test targets the stabilized endpoint behavior
+> • Child-session note: item 2 may branch into a nested investigation session
+> • Current session state: 5 pending, 0 in progress, 0 completed
+>
+> **Current item:**
+> • Item 4
+> • Title: Add missing input validation on the create-task endpoint
+> • Category: API correctness
+> • Priority score: 18
+> • Rationale: stabilize the endpoint contract before the follow-up regression test is addressed
+>
+> **Reply with one of these:**
+> • Approve Immediate
+> • Approve Delayed
+> • Deny
+> • Next
+> • More Options
+
+**User:**
+
+> Approve Immediate
+
+ [ ... agent does the item 4 work here ... ]
+
+**Agent:**
+
+> **Item 4 completed.**
+>
+> **Session status:**
+> • 1 completed
+> • 4 pending
+> • 20% done
+>
+> **Current item:**
+> • Item 2
+> • Title: Resolve a race condition in the background sync job
+> • Category: Concurrency
+> • Priority score: 15
+> • Rationale: this can affect correctness across the sync flow and may need a nested investigation before the parent item can be resolved
+>
+> **Child-session note:**
+> • If you approve immediate, I will present the nested flow
+>
+> **Reply with one of these:**
+> • Approve Immediate
+> • Approve Delayed
+> • Deny
+> • Next
+> • More Options
+
+**User:**
+
+> Approve Immediate.
+
+**Agent:**
+
+> Item 2 needs isolated investigation before I can finish it. I created a child OBO session for the race-condition investigation and paused the parent session.
+>
+> **Child session summary:**
+> • Scope: reproduce the sync race, identify the conflicting code path, and verify a fix.
+> • Proposed child order: reproduce, isolate, patch, verify.
+
+**User:**
+
+> Proceed.
+
+[ ... agent does the child-session investigation work here ... ]
+
+**Agent:**
+
+> **Child session completed.** Root cause was overlapping writes from two sync workers.
+>
+> I resumed the parent session, applied the fix, and I am ready to complete item 2.
+>
+> **Current item:**
+> • Item 2
+> • Title: Resolve a race condition in the background sync job
+> • Category: Concurrency
+> • Priority score: 15
+>
+> **Reply with one of these:**
+> • Approve Immediate
+> • Approve Delayed
+> • Deny
+> • Next
+> • More Options
+
+**User:**
+
+> Approve Immediate
+
+**Agent:**
+
+> [ ... agent records the resolution and resumes the parent workflow here ... ]
+>
+> **Item 2 completed.**
+>
+> **Session status:**
+> • 2 completed
+> • 3 pending
+> • 40% done
+>
+> **Current item:**
+> • Item 5
+> • Title: Fix password logging in the login handler
+> • Category: Security
+> • Priority score: 15
+> • Rationale: remove plaintext password logging without disturbing the validation and race-condition fixes
+>
+> **Reply with one of these:**
+> • Approve Immediate
+> • Approve Delayed
+> • Deny
+> • Next
+> • More Options
+
+**User:**
+
+> Proceed.
+
+**Agent:**
+
+> [ ... agent does the item 5 work here ... ]
+>
+> **Item 5 completed.**
+>
+> **Session status:**
+> • 3 completed
+> • 2 pending
+> • 60% done
+>
+> **Current item:**
+> • Item 3
+> • Title: Add a regression test for duplicate task IDs
+> • Category: Testing
+> • Priority score: 14
+> • Rationale: this now follows item 4 as planned, because the endpoint behavior has been stabilized
+>
+> **Reply with one of these:**
+> • Approve Immediate
+> • Approve Delayed
+> • Deny
+> • Next
+> • More Options
+
+**User:**
+
+> Proceed.
+
+**Agent:**
+
+> [ ... agent does the item 3 work here ... ]
+>
+> **Item 3 completed.**
+>
+> **Session status:**
+> • 4 completed
+> • 1 pending
+> • 80% done
+>
+> **Current item:**
+> • Item 1
+> • Title: Improve an ambiguous settings label in the UI
+> • Category: UX
+> • Priority score: 10
+> • Rationale: this is the remaining low-impact cleanup item
+>
+> **Reply with one of these:**
+> • Approve Immediate
+> • Approve Delayed
+> • Deny
+> • Next
+> • More Options
+
+**User:**
+> Approve Immediate
+
+[ ... agent does the item 1 work here ... ]
+
+**Agent:**
+
+> **Item 1 completed.**
+>
+> **Session status:**
+> • 5 completed
+> • 0 pending
+> • 100% done
+>
+> **All actionable items are now resolved.** I completed the OBO session and the final record includes the child-session detour, the dependency-aware ordering, and the resolution for each item.
+
+**Commentary**: this preserves the reordered plan, stores the dependency constraint, allows item 2 to branch into a child session, and gives another agent a durable session state to resume later.
+
+## Installation
+
+### Automated Installation
+
+Run the interactive installer from this repository:
+
+```bash
+./install.sh
+```
+
+The installer:
+
+- asks which client or clients you want to configure: Copilot, Codex, Claude Code, Cline, or all of them
+- asks whether to install shared workflow instructions at the user level when supported or into a target project
+- writes the `obo-mcp` MCP server entry into each client's real config file
+- installs the packaged OBO instructions, prompt, and skill files into the matching destination
+- explains what it is changing and makes timestamped backups before it updates existing files
+
+The automated installer uses the current checkout path in `uvx --from ...`, so it is best when you are installing from a local clone of this repository.
+
+If you want clients to install `obo-mcp` from the published GitHub URL instead of a local checkout, follow the manual steps below.
+
+### Manual Installation
+
+Install the MCP server first so your agent can call the `obo_*` tools. Then install the shared OBO instructions so your agent knows when to use those tools and how to follow the workflow correctly.
+
+If you are wiring up an MCP config by hand, point it at either your local checkout or the published GitHub URL.
+
+Local checkout example:
+
+```json
+"obo-mcp": {
+  "type": "stdio",
+  "command": "uvx",
+  "args": ["--from", "/absolute/path/to/obo-mcp", "obo-mcp"]
+}
+```
+
+Published GitHub URL example:
+
+```json
+"obo-mcp": {
+  "type": "stdio",
+  "command": "uvx",
+  "args": ["--from", "git+https://github.com/warnes-innovations/obo-mcp", "obo-mcp"]
+}
+```
 
 This repository includes reusable templates under `templates/agent-setup/`:
 
@@ -112,25 +393,51 @@ This repository includes reusable templates under `templates/agent-setup/`:
 - `templates/agent-setup/AGENTS.md`
 - `templates/agent-setup/CLAUDE.md`
 
-### GitHub Copilot
+Registering `obo-mcp` only exposes the `obo_*` tools. It does not by itself guarantee the overview-first, dependency-aware, one-item-at-a-time workflow shown in the toy example above. To make agent behavior reliable, install both parts:
 
-For Copilot, install the MCP server and add explicit workspace instructions so the agent prefers `obo_*` tools over direct JSON edits.
+- the MCP server registration, so the agent can call the tools
+- the shared OBO instructions, so the agent knows when to switch from plain chat or a simple question tool into a real OBO session
 
-1. Register `obo-mcp` in the MCP client used by Copilot.
-2. If the target repository already has `.github/copilot-instructions.md`, merge
-  the OBO rules from `templates/agent-setup/copilot/copilot-instructions.md`
-  into the existing file instead of overwriting it.
-3. If the target repository does not already have `.github/copilot-instructions.md`, create it from
-  `templates/agent-setup/copilot/copilot-instructions.md`.
-4. If the target repository already has `.github/skills/one-by-one/SKILL.md`, merge the packaged OBO skill guidance from
-  `templates/agent-setup/copilot/skills/one-by-one/SKILL.md`. Otherwise create
-  `.github/skills/one-by-one/SKILL.md` from the packaged version.
-5. If you want a reusable `/obo` prompt and `.github/prompts/obo.prompt.md` already exists, merge the OBO workflow into that prompt or create a separate
-  prompt file. Otherwise create it from
-  `templates/agent-setup/copilot/prompts/obo.prompt.md`.
-6. Adjust the wording if the target repository has project-specific review rules or existing instruction files with overlapping guidance.
+Across clients, the same pattern applies:
 
-The `copilot/` folder in this repository is only a visible packaging location. When consumers install these templates in their own repositories, the files should still live under `.github/` so Copilot can discover them.
+1. Register `obo-mcp` in the client's MCP configuration.
+2. Copy or merge the packaged OBO instructions into the client's instruction location.
+3. Keep existing repository guidance and merge the OBO rules into it instead of overwriting it.
+4. Expect the installed instructions to tell the agent when OBO is preferred over plain chat, how to start with an overview, how to resume or merge existing sessions, and how to avoid direct JSON edits.
+
+#### GitHub Copilot
+
+For Copilot, register `obo-mcp` in your VS Code MCP config and then copy the packaged OBO files into either your VS Code user configuration or the target repository's `.github/` folder.
+
+Without those installed files, Copilot may still use plain chat or `askQuestions`-style interaction even though the MCP tools are available. The packaged instruction, skill, and prompt files are what push Copilot toward the full OBO workflow.
+
+VS Code MCP config files are normally stored in the same user configuration folder as `copilot-instructions.md`. Add an `obo-mcp` entry to `mcp.json` with either your local checkout path or the published GitHub URL.
+
+VS Code user configuration folders:
+
+- macOS: `$HOME/Library/Application Support/Code/User`
+- Linux: `$HOME/.config/Code/User`
+- Windows: `$HOME/AppData/Roaming/Code/User`
+
+Install the packaged Copilot files in one of these two ways:
+
+User-level installation:
+
+- Copy or merge `templates/agent-setup/copilot/copilot-instructions.md` into your user-level `copilot-instructions.md`
+- Copy or merge `templates/agent-setup/copilot/skills/one-by-one/SKILL.md` into `skills/one-by-one/SKILL.md`
+- Copy or merge `templates/agent-setup/copilot/prompts/obo.prompt.md` into `prompts/obo.prompt.md`
+
+Repository-level installation:
+
+- Copy or merge `templates/agent-setup/copilot/copilot-instructions.md` into the target repository's `.github/copilot-instructions.md`
+- Copy or merge `templates/agent-setup/copilot/skills/one-by-one/SKILL.md` into the target repository's `.github/skills/one-by-one/SKILL.md`
+- Copy or merge `templates/agent-setup/copilot/prompts/obo.prompt.md` into the target repository's `.github/prompts/obo.prompt.md`
+
+Use user-level installation when you want the OBO workflow available across repositories. Use repository-level installation when you want the workflow to travel with a specific project.
+
+If the destination file already exists, merge the OBO rules into it instead of overwriting it. Adjust the wording where needed so the OBO instructions fit the project's existing review rules and conventions.
+
+The `templates/agent-setup/copilot/` folder in this repository is only the source package. Copilot will only discover the files after you install them into your VS Code user configuration folders or into the target repository's `.github/` folder.
 
 The Copilot instruction template tells agents to:
 
@@ -145,11 +452,11 @@ The Copilot instruction template tells agents to:
 
 The packaged skill provides the trigger logic for when OBO should be used, and the prompt template provides an on-demand `/obo` workflow that walks an agent through the full sequential session lifecycle using the MCP server.
 
-### Codex
+#### Codex
 
-Codex reads shared project instructions from `AGENTS.md` and MCP server configuration from `~/.codex/config.toml`.
+For Codex, the same two-part pattern applies: register the MCP server in `~/.codex/config.toml`, then copy or merge the shared OBO instruction template into the target repository's `AGENTS.md`.
 
-Add `obo-mcp` to the `~/.codex/config.toml` file:
+Register `obo-mcp` in `~/.codex/config.toml`:
 
 ```toml
 [mcp_servers.obo-mcp]
@@ -157,24 +464,60 @@ command = "uvx"
 args = ["--from", "git+https://github.com/warnes-innovations/obo-mcp", "obo-mcp"]
 ```
 
-Then copy `templates/agent-setup/AGENTS.md` into the target repository as `AGENTS.md`. If the repository already has an `AGENTS.md`, merge the OBO rules into the existing file instead of replacing it. Keep the trigger guidance that explains when agents should switch from normal chat to OBO handling.
+Replace the GitHub URL with your local checkout path if you want Codex to run from a clone you already have on disk.
 
-### Claude Code
+Then copy or merge `templates/agent-setup/AGENTS.md` into the target repository as `AGENTS.md`. If `AGENTS.md` already exists, merge the OBO rules into the existing file instead of replacing it.
 
-Claude Code can register local stdio MCP servers with `claude mcp add` and uses `CLAUDE.md` or `.claude/CLAUDE.md` for persistent project instructions.
+The packaged `AGENTS.md` template tells Codex to:
 
-Add `obo-mcp` to Claude Code:
+- switch from normal chat into OBO when the work needs durable queue state, explicit sequential approval, reordering, blocker tracking, or nested child sessions
+- start with `obo_list_sessions` and ask whether to resume, merge, replace, or stop when an incomplete session already exists
+- begin each OBO session with an overview of scope, dependencies, and proposed order instead of jumping straight into the first item
+- use the MCP tools as the source of truth for session state rather than editing session JSON directly
+
+#### Claude Code
+
+For Claude Code, register the MCP server in `~/.claude/settings.json` or by using the Claude CLI, and then copy the shared OBO instructions into `CLAUDE.md` or `.claude/CLAUDE.md` in the target repository.
+
+As with Copilot and Codex, the MCP registration only exposes the tools. The instruction file is what tells Claude Code when OBO is preferable to plain chat and how the session flow should behave.
+
+JSON config example for `~/.claude/settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "obo-mcp": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/warnes-innovations/obo-mcp", "obo-mcp"]
+    }
+  }
+}
+```
+
+Register `obo-mcp` in Claude Code:
 
 ```bash
 claude mcp add --transport stdio --scope project obo-mcp -- \
   uvx --from git+https://github.com/warnes-innovations/obo-mcp obo-mcp
 ```
 
-Then copy `templates/agent-setup/CLAUDE.md` into the target repository as `CLAUDE.md` or `.claude/CLAUDE.md`. If the repository already has one of those files, merge the OBO rules into the existing instructions instead of replacing them. Keep the trigger guidance that explains when OBO is preferred over plain chat.
+Then copy or merge `templates/agent-setup/CLAUDE.md` into the target repository as `CLAUDE.md` or `.claude/CLAUDE.md`. If one of those files already exists, merge the OBO rules into the existing instructions instead of replacing them.
 
-### Cline
+The packaged Claude template tells Claude Code to:
 
-Cline stores MCP server settings in `cline_mcp_settings.json`. A local stdio configuration for `obo-mcp` looks like this:
+- use OBO for multi-item review flows that need durable state, explicit approvals, reordering, blockers, or nested child sessions
+- open with a summary of scope, major dependencies, and proposed order
+- keep the session updated after each approved action instead of letting the chat transcript become the only record
+- stop and surface a tool gap if a needed OBO action is not available through MCP
+
+#### Cline
+
+For Cline, register the MCP server in `cline_mcp_settings.json` and then copy or merge the OBO instructions into your Cline workspace guidance.
+
+This follows the same pattern as the other clients: MCP registration exposes the tools, while the instruction text tells Cline when to use a durable OBO workflow instead of a lighter prompt or chat interaction.
+
+A local stdio configuration for `obo-mcp` looks like this:
 
 ```json
 {
@@ -192,11 +535,26 @@ Cline stores MCP server settings in `cline_mcp_settings.json`. A local stdio con
 }
 ```
 
-For behavior guidance, reuse the same rules from the Copilot or AGENTS template in Cline's workspace instructions or custom prompt setup. Cline's MCP config only exposes the tools; it does not replace explicit workflow instructions. If the target workspace already has Cline instructions, merge the OBO rules into the existing guidance rather than replacing it wholesale.
+On macOS, the default VS Code Cline MCP settings path is `$HOME/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json`. On Linux it is `$HOME/.config/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json`. On Windows it is `$HOME/AppData/Roaming/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json`.
 
-### Other Agents
+After registering the server, copy or merge the same rules from the Copilot or AGENTS template into Cline's workspace instructions or custom prompt setup. Cline's MCP config only exposes the tools; it does not replace explicit workflow instructions. If the target workspace already has Cline instructions, merge the OBO rules into the existing guidance rather than replacing it wholesale.
 
-If an agent supports a repository instruction file, copy the shared OBO workflow rules into that client's preferred instruction location. If it only supports user-level or UI-defined instructions, paste the same rules there and keep the MCP registration separate. When an instruction file already exists, merge these rules with the existing guidance and resolve any conflicts explicitly.
+The installed Cline guidance should tell the agent to:
+
+- use OBO when work needs persistent queue state rather than a one-turn menu
+- start with a summary and proposed order before presenting the first item
+- update the stored session after each approval, skip, block, or completion
+- avoid direct edits to `.github/obo_sessions/*.json` and `index.json`
+
+#### Other Agents
+
+If you are installing OBO for another agent, copy the shared OBO workflow rules into that client's preferred instruction location. If the agent only supports user-level or UI-defined instructions, paste the same rules there and keep the MCP registration separate. When an instruction file already exists, merge these rules with the existing guidance and resolve any conflicts explicitly.
+
+The goal is to reproduce the same behavior described earlier in this README:
+
+- plain chat remains available for small single-step tasks
+- question tools remain available for short menu choices in the current turn
+- OBO becomes the preferred mode when the work needs a durable ordered queue, explicit approvals, dependency-aware ordering, blocker tracking, or nested child sessions
 
 Minimal rule set to reuse across agents:
 
@@ -207,6 +565,8 @@ Minimal rule set to reuse across agents:
 - Use `obo_create` for new sessions and `obo_merge_items` to append findings.
 - Start OBO work with an overview of scope, item ordering, and major
   dependencies.
+- Present one item at a time and wait for explicit user approval before moving
+  on.
 - Use `obo_next` to choose work, `obo_mark_in_progress` when starting,
   `obo_mark_blocked` when progress is blocked, and `obo_mark_complete` or
   `obo_mark_skip` when resolving items.
@@ -215,16 +575,4 @@ Minimal rule set to reuse across agents:
 - Use `obo_session_status` or `obo_list_items` to inspect state.
 - Use `obo_complete_session` when no actionable items remain.
 
-## Session Format
-
-Session files live at `{base_dir}/.github/obo_sessions/session_YYYYMMDD_HHMMSS.json`. New sessions created through `obo_create` must follow this filename pattern. Existing session files can still be opened by path or filename for read/update operations.
-
-Item statuses are `pending`, `in_progress`, `blocked`, `completed`, and `skipped`. Blocked items store blocker metadata plus `blocked_at` so the reason for the stall is preserved.
-
-Session statuses are `active`, `paused`, and `completed`. A parent session is paused when an active child session exists.
-
-Child sessions store `parent_session_file` and optional `parent_item_id`. Parent sessions track `child_session_files` and `active_child_session` so nested OBO workflows can pause and resume cleanly.
-
-Priority score formula: `urgency + importance + (6 - effort) + dependencies`
-
-Mutating tools keep `index.json` synchronized with session changes.
+Session file paths, filename rules, JSON fields, status semantics, priority scoring, and the `index.json` summary format are documented in [docs/SESSION_FORMAT.md](/Users/warnes/src/obo-mcp/docs/SESSION_FORMAT.md).
