@@ -152,6 +152,30 @@ def test_obo_create_rejects_invalid_filename(base_dir):
     assert result.startswith("ERROR:")
 
 
+def test_obo_create_without_items_creates_empty_session(base_dir):
+    result = obo_create(
+        base_dir=base_dir,
+        title="Empty Session",
+        description="no items yet",
+        session_filename="session_20260314_131000.json",
+    )
+    data = json.loads(result)
+    assert data["items_created"] == 0
+    assert data["status"] == "completed"
+
+
+def test_obo_create_with_items_none_creates_empty_session(base_dir):
+    result = obo_create(
+        base_dir=base_dir,
+        title="Empty Session None",
+        description="no items yet",
+        items=None,
+        session_filename="session_20260314_131500.json",
+    )
+    data = json.loads(result)
+    assert data["items_created"] == 0
+
+
 # ---------------------------------------------------------------------------
 # obo_list_sessions
 # ---------------------------------------------------------------------------
@@ -527,6 +551,19 @@ def test_obo_create_child_session(base_dir, session_name):
     assert data["action"] == "child_created"
     assert data["parent_status"] == "paused"
     assert data["child_session_file"] == "session_20260314_165000.json"
+
+
+def test_obo_create_child_session_without_items(base_dir, session_name):
+    result = obo_create_child_session(
+        parent_session_file=session_name,
+        title="Empty Child",
+        description="child with no initial items",
+        base_dir=base_dir,
+        session_filename="session_20260314_165100.json",
+    )
+    data = json.loads(result)
+    assert data["action"] == "child_created"
+    assert data["parent_status"] == "paused"
 
 
 def test_obo_complete_child_session(base_dir, session_name):

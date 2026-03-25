@@ -30,6 +30,7 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
 - Session completion state is derived and persisted consistently.
 - Package metadata and tests were cleaned up to reduce editor diagnostics.
 - Item lifecycle now distinguishes `deferred` from immediate actionable work, while session status reports approval counts separately.
+- `items` is now optional (defaults to `[]`) in `obo_create` and `obo_create_child_session`, enabling a two-step workflow where a session is created first and items are added later via `obo_merge_items`. This also ensures the `items` argument is correctly advertised in the published MCP schema for clients that introspect tool parameters.
 
 ## [0.1.0]
 

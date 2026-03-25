@@ -69,7 +69,7 @@ def obo_create(
     base_dir: str,
     title: str,
     description: str,
-    items: list[dict],
+    items: Optional[list[dict]] = None,
     session_filename: Optional[str] = None,
 ) -> str:
     """Create a new OBO session file and update index.json atomically.
@@ -79,6 +79,8 @@ def obo_create(
         title: Human-readable session title
         description: What this session is reviewing
         items: List of item dicts. All priority fields are optional.
+               If omitted, the session is created with no items (items can
+               be added later with obo_merge_items).
         session_filename: Optional explicit filename.
                           If omitted, generated from current timestamp.
     """
@@ -95,7 +97,7 @@ def obo_create(
 
         session = create_session(
             sf,
-            items,
+            items if items is not None else [],
             title=title,
             description=description,
         )
@@ -486,7 +488,7 @@ def obo_create_child_session(
     parent_session_file: str,
     title: str,
     description: str,
-    items: list[dict],
+    items: Optional[list[dict]] = None,
     base_dir: Optional[str] = None,
     parent_item_id: Optional[str] = None,
     session_filename: Optional[str] = None,
@@ -497,7 +499,8 @@ def obo_create_child_session(
         parent_session_file: Parent session path or filename
         title: Human-readable child session title
         description: What the child session is reviewing
-        items: Child session items
+        items: Child session items. If omitted, the child session is created
+               with no items (items can be added later with obo_merge_items).
         base_dir: Required if session paths are bare filenames
         parent_item_id: Optional parent item to block while child is active
         session_filename: Optional explicit child session filename
@@ -517,7 +520,7 @@ def obo_create_child_session(
         result = create_child_session(
             parent_sf,
             child_sf,
-            items,
+            items if items is not None else [],
             title=title,
             description=description,
             parent_item_id=parent_item_id,
