@@ -15,6 +15,8 @@ For commercial licensing, contact greg@warnes-innovations.com
 
 Use the `oboe-mcp` MCP server to manage a One-By-One review session for the current workspace.
 
+For every OBO decision that offers predefined choices, use the agent's structured question tool (`askQuestions`, `ask_questions`, `AskUserQuestion`, or the exact equivalent available in that client). Do not substitute plain-text numbered menus unless the structured question tool is unavailable, failing, or the prompt genuinely requires unrestricted freeform input; when falling back, state the reason explicitly.
+
 Follow this workflow:
 
 1. Call `obo_list_sessions` for the current workspace before extracting new items.
@@ -39,6 +41,8 @@ Rules:
 
 - Never directly edit `.github/obo_sessions/*.json` or `index.json`.
 - Never synthesize session state from manual file writes when an `obo_*` tool exists.
+- Use the structured question tool by default for resume, merge, defer, replace, stop, approval, reorder, restore, and other predefined OBO menus.
+- Only fall back to plain text when the structured question tool is unavailable, failing, or the user response truly must be open-ended; say why before using the fallback.
 - Prefer OBO for multi-item workflows that need resumable queue state; prefer normal chat for one-off tasks.
 - Reorder work intentionally using impact and dependency information instead of chat order.
 - Present one item at a time and do not advance until the user explicitly approves, denies, skips, or asks to move on.

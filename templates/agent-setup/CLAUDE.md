@@ -22,7 +22,7 @@ Use the OBO MCP tools for all One-By-One review session work in this repository.
 
 - Never directly create, edit, repair, or reorder files in `.github/obo_sessions/`.
 - Use `obo_list_sessions` before starting a new OBO session.
-- If an incomplete session exists, ask the user whether to resume, merge, replace, or stop.
+- If an incomplete session exists, use the agent's structured question UI/tool when available to ask whether to resume, merge, replace, or stop.
 - Use `obo_create` to start a new session.
 - Use `obo_merge_items` to append new findings to an existing session.
 - Start the session with an overview of scope, major dependencies, and proposed order.
@@ -35,6 +35,8 @@ Use the OBO MCP tools for all One-By-One review session work in this repository.
 - Use `obo_mark_complete` or `obo_mark_skip` to resolve an item.
 - Use `obo_session_status` or `obo_list_items` instead of reading `index.json` directly.
 - Use `obo_complete_session` when all actionable items are resolved.
+- Use the agent's structured question UI/tool for predefined OBO choices such as resume, merge, replace, approval, navigation, stop, restore, and reorder instead of plain-text numbered menus.
+- Only fall back to plain text when no structured question tool exists, the tool is failing, or the response truly must be open-ended; state that reason explicitly before falling back.
 
 ## Session Conventions
 
