@@ -495,7 +495,9 @@ The Copilot instruction template tells agents to:
   `obo_mark_skip`, `obo_create_child_session`,
   `obo_complete_child_session`, `obo_session_status`, and
   `obo_complete_session`
+- use a structured question tool for predefined OBO choices such as resume, merge, replace, approval, navigation, reorder, restore, and stop
 - ask the user whether to resume, merge, replace, or stop when an active session already exists
+- only fall back to plain text when the structured question tool is unavailable, failing, or the response truly must be freeform, and explicitly state that reason
 
 The packaged skill provides the trigger logic for when OBO should be used, and the prompt template provides an on-demand `/obo` workflow that walks an agent through the full sequential session lifecycle using the MCP server.
 
@@ -521,6 +523,7 @@ The packaged `AGENTS.md` template tells Codex to:
 - start with `obo_list_sessions` and ask whether to resume, merge, replace, or stop when an incomplete session already exists
 - begin each OBO session with an overview of scope, dependencies, and proposed order instead of jumping straight into the first item
 - use the MCP tools as the source of truth for session state rather than editing session JSON directly
+- use the agent's structured question UI/tool by default for predefined OBO menus and explain any plain-text fallback
 
 #### Claude Code
 
@@ -557,6 +560,7 @@ The packaged Claude template tells Claude Code to:
 - open with a summary of scope, major dependencies, and proposed order
 - keep the session updated after each approved action instead of letting the chat transcript become the only record
 - stop and surface a tool gap if a needed OBO action is not available through MCP
+- use the agent's structured question UI/tool by default for predefined OBO menus and explain any plain-text fallback
 
 #### Cline
 
@@ -592,6 +596,7 @@ The installed Cline guidance should tell the agent to:
 - start with a summary and proposed order before presenting the first item
 - update the stored session after each approval, skip, block, or completion
 - avoid direct edits to `.github/obo_sessions/*.json` and `index.json`
+- use Cline's structured question UI/tool by default for predefined OBO menus and explain any plain-text fallback
 
 #### Other Agents
 
@@ -607,11 +612,15 @@ Minimal rule set to reuse across agents:
 
 - Never directly edit `.github/obo_sessions/*.json` or `index.json`.
 - Start with `obo_list_sessions`.
-- If an incomplete session exists, ask whether to resume, merge, replace, or
-  stop.
+- If an incomplete session exists, use a structured question tool when
+  available to ask whether to resume, merge, replace, or stop.
 - Use `obo_create` for new sessions and `obo_merge_items` to append findings.
 - Start OBO work with an overview of scope, item ordering, and major
   dependencies.
+- Use a structured question tool by default for predefined OBO menus such as
+  approval, navigation, reorder, restore, and stop.
+- Only fall back to plain text when no structured question tool exists, the
+  tool is failing, or the response truly must be open-ended, and say why.
 - Present one item at a time and wait for explicit user approval before moving
   on.
 - Use `obo_next` to choose work, `obo_mark_in_progress` when starting,

@@ -85,7 +85,7 @@ Definitions:
 ## Workflow Summary
 
 1. Check for incomplete sessions first.
-2. Offer resume, merge, replace, or stop when relevant.
+2. Offer resume, merge, replace, or stop with the structured question tool whenever predefined options are available.
 3. Extract items and assign priority factors.
 4. Persist the session with `obo_create` or `obo_merge_items`. `items` is optional in `obo_create` and `obo_create_child_session`; if items are not yet known, create the session first and populate it later with `obo_merge_items`.
 5. Present an executive summary for the full list, including major dependencies and proposed order.
@@ -95,5 +95,7 @@ Definitions:
 9. Use `obo_set_approval` for approval metadata such as `approval_status`, `approval_mode`, and `approval_note`.
 10. Treat Approve Delayed as a single `obo_set_approval` call with `approval_status=approved` and `approval_mode=delayed`.
 11. Do not advance until the user explicitly approves, denies, skips, blocks, or asks to continue.
+
+Use the agent's structured question tool (`askQuestions`, `ask_questions`, `AskUserQuestion`, or equivalent) by default for predefined OBO choices such as resume, merge, replace, approval, navigation, stop, restore, and reorder. Only fall back to plain text when the structured question tool is unavailable, failing, or the prompt genuinely requires unrestricted freeform input; when that happens, state the reason explicitly.
 
 For the full step-by-step conversational workflow, use the packaged `/obo` prompt at `.github/prompts/obo.prompt.md`.
