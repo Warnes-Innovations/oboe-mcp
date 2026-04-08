@@ -2,9 +2,32 @@
 name = "oboe-mcp"
 version = "0.1.0"
 description = "MCP server for durable one-by-one review workflows, with prioritized session state for coding agents."
+readme = {file = "README.md", content-type = "text/markdown"}
+authors = [{name = "Gregory R. Warnes", email = "greg@warnes-innovations.com"}]
 license = {text = "AGPL-3.0-or-later"}
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
+keywords = ["agent", "mcp", "model-context-protocol", "review", "workflow"]
+classifiers = [
+	"Development Status :: 3 - Alpha",
+	"Environment :: Console",
+	"Intended Audience :: Developers",
+	"License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+	"Operating System :: OS Independent",
+	"Programming Language :: Python :: 3",
+	"Programming Language :: Python :: 3.11",
+	"Programming Language :: Python :: 3.12",
+	"Topic :: Software Development",
+	"Topic :: Software Development :: Libraries :: Python Modules",
+	"Typing :: Typed",
+]
 dependencies = ["mcp>=1.0"]
+
+[project.urls]
+Homepage = "https://github.com/Warnes-Innovations/oboe-mcp"
+Repository = "https://github.com/Warnes-Innovations/oboe-mcp"
+Issues = "https://github.com/Warnes-Innovations/oboe-mcp/issues"
+Changelog = "https://github.com/Warnes-Innovations/oboe-mcp/blob/main/CHANGELOG.md"
 
 [project.scripts]
 oboe-mcp = "oboe_mcp.server:main"
@@ -12,6 +35,25 @@ oboe-mcp = "oboe_mcp.server:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build]
+exclude = [
+	"src/oboe_mcp/.mypy_cache/**",
+	"src/oboe_mcp/__pycache__/**",
+]
+
+[tool.hatch.build.targets.sdist]
+include = [
+	"/CHANGELOG.md",
+	"/LICENSE",
+	"/README.md",
+	"/docs",
+	"/install.sh",
+	"/pyproject.toml",
+	"/src",
+	"/templates",
+	"/tests",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/oboe_mcp"]

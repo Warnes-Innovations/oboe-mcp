@@ -23,6 +23,8 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
 - Cross-agent setup guidance for Copilot, Codex, Claude Code, and Cline.
 - First-class approval metadata support on items, including `approval_status`, `approval_mode`, `approved_at`, and `approval_note`.
 - New `obo_set_approval` MCP tool for recording approval decisions and delayed-review lifecycle transitions in one operation.
+- Trusted publishing workflow for TestPyPI and PyPI.
+- Release documentation for building, validating, and publishing Python distributions.
 
 ### Changed
 
@@ -31,6 +33,7 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
 - Package metadata and tests were cleaned up to reduce editor diagnostics.
 - Item lifecycle now distinguishes `deferred` from immediate actionable work, while session status reports approval counts separately.
 - `items` is now optional (defaults to `[]`) in `obo_create` and `obo_create_child_session`, enabling a two-step workflow where a session is created first and items are added later via `obo_merge_items`. This also ensures the `items` argument is correctly advertised in the published MCP schema for clients that introspect tool parameters.
+- Package metadata now includes PyPI-ready project URLs, classifiers, README rendering, and explicit build exclusions for generated cache directories.
 
 ## [0.1.0]
 

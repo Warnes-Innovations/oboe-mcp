@@ -17,6 +17,12 @@ Provides 16 tools for creating, navigating, and resolving items in priority-scor
 Licensed under `AGPL-3.0-or-later` with commercial licensing available.
 See `LICENSE` for full terms.
 
+## PyPI Package
+
+The package is configured for PyPI publication. Once released, install or run it directly from PyPI with `uvx oboe-mcp`.
+
+For release steps and Trusted Publishing setup, see `docs/PYPI_RELEASE.md`.
+
 ## Tools
 
 | Tool | Description |
@@ -404,13 +410,13 @@ The installer:
 
 The automated installer uses the current checkout path in `uvx --from ...`, so it is best when you are installing from a local clone of this repository.
 
-If you want clients to install `oboe-mcp` from the published GitHub URL instead of a local checkout, follow the manual steps below.
+If you want clients to install `oboe-mcp` from PyPI instead of a local checkout, follow the manual steps below.
 
 ### Manual Installation
 
 Install the MCP server first so your agent can call the `obo_*` tools. Then install the shared OBO instructions so your agent knows when to use those tools and how to follow the workflow correctly.
 
-If you are wiring up an MCP config by hand, point it at either your local checkout or the published GitHub URL.
+If you are wiring up an MCP config by hand, point it at either your local checkout or the published PyPI package.
 
 Local checkout example:
 
@@ -422,13 +428,13 @@ Local checkout example:
 }
 ```
 
-Published GitHub URL example:
+Published PyPI example:
 
 ```json
 "oboe-mcp": {
   "type": "stdio",
   "command": "uvx",
-  "args": ["--from", "git+https://github.com/warnes-innovations/oboe-mcp", "oboe-mcp"]
+  "args": ["oboe-mcp"]
 }
 ```
 
@@ -458,7 +464,7 @@ For Copilot, register `oboe-mcp` in your VS Code MCP config and then copy the pa
 
 Without those installed files, Copilot may still use plain chat or `askQuestions`-style interaction even though the MCP tools are available. The packaged instruction, skill, and prompt files are what push Copilot toward the full OBO workflow.
 
-VS Code MCP config files are normally stored in the same user configuration folder as `copilot-instructions.md`. Add an `oboe-mcp` entry to `mcp.json` with either your local checkout path or the published GitHub URL.
+VS Code MCP config files are normally stored in the same user configuration folder as `copilot-instructions.md`. Add an `oboe-mcp` entry to `mcp.json` with either your local checkout path or the published PyPI package.
 
 VS Code user configuration folders:
 
@@ -510,7 +516,7 @@ Register `oboe-mcp` in `~/.codex/config.toml`:
 ```toml
 [mcp_servers.oboe-mcp]
 command = "uvx"
-args = ["--from", "git+https://github.com/warnes-innovations/oboe-mcp", "oboe-mcp"]
+args = ["oboe-mcp"]
 ```
 
 Replace the GitHub URL with your local checkout path if you want Codex to run from a clone you already have on disk.
@@ -539,7 +545,7 @@ JSON config example for `~/.claude/settings.json`:
     "oboe-mcp": {
       "type": "stdio",
       "command": "uvx",
-      "args": ["--from", "git+https://github.com/warnes-innovations/oboe-mcp", "oboe-mcp"]
+      "args": ["oboe-mcp"]
     }
   }
 }
@@ -549,8 +555,10 @@ Register `oboe-mcp` in Claude Code:
 
 ```bash
 claude mcp add --transport stdio --scope project oboe-mcp -- \
-  uvx --from git+https://github.com/warnes-innovations/oboe-mcp oboe-mcp
+  uvx oboe-mcp
 ```
+
+Replace the PyPI package with your local checkout path if you want Claude Code to run from a clone you already have on disk.
 
 Then copy or merge `templates/agent-setup/CLAUDE.md` into the target repository as `CLAUDE.md` or `.claude/CLAUDE.md`. If one of those files already exists, merge the OBO rules into the existing instructions instead of replacing them.
 
@@ -575,11 +583,7 @@ A local stdio configuration for `oboe-mcp` looks like this:
   "mcpServers": {
     "oboe-mcp": {
       "command": "uvx",
-      "args": [
-        "--from",
-        "git+https://github.com/warnes-innovations/oboe-mcp",
-        "oboe-mcp"
-      ],
+      "args": ["oboe-mcp"],
       "disabled": false
     }
   }
