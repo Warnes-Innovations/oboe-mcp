@@ -14,6 +14,8 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-04-08
+
 ### Added
 
 - First-class session lifecycle tools for marking items in progress, merging items, and completing sessions.

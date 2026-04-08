@@ -42,7 +42,7 @@ Optionally run the project test suite before publishing:
 
 1. Update the version in [pyproject.toml](../pyproject.toml) and [src/oboe_mcp/__init__.py](../src/oboe_mcp/__init__.py).
 2. Update [CHANGELOG.md](../CHANGELOG.md) for the release.
-3. Create a GitHub release for the version tag, for example `v0.1.0`.
+3. Create a GitHub release for the version tag, for example `v0.1.1`.
 4. The release event triggers the same workflow and publishes to PyPI.
 
 ## Post-Publish Install

@@ -19,9 +19,11 @@ See `LICENSE` for full terms.
 
 ## PyPI Package
 
-The package is configured for PyPI publication. Once released, install or run it directly from PyPI with `uvx oboe-mcp`.
+Install or run Oboe MCP directly from PyPI using either of these alternatives:
 
-For release steps and Trusted Publishing setup, see `docs/PYPI_RELEASE.md`.
+- Run it without installing: `uvx oboe-mcp`
+- Install it into your current environment: `pip install oboe-mcp`
+
 
 ## Tools
 
