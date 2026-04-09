@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, Sequence
 
@@ -85,8 +86,6 @@ def obo_create(
         session_filename: Optional explicit filename.
                           If omitted, generated from current timestamp.
     """
-    from datetime import datetime
-
     sessions_dir = obo_sessions_dir(base_dir)
     try:
         if session_filename:
@@ -506,8 +505,6 @@ def obo_create_child_session(
         parent_item_id: Optional parent item to block while child is active
         session_filename: Optional explicit child session filename
     """
-    from datetime import datetime
-
     try:
         parent_sf = _resolve(parent_session_file, base_dir)
         sessions_dir = parent_sf.parent
@@ -662,6 +659,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
+    """Run the MCP server CLI entry point."""
     _build_parser().parse_args(argv)
     mcp.run()
 
