@@ -441,6 +441,17 @@ copilot_prompt_target() {
     fi
 }
 
+copilot_release_instruction_target() {
+    local vscode_user_dir
+    vscode_user_dir="$(detect_vscode_user_dir)"
+
+    if [ "$INSTALL_SCOPE" = "user" ]; then
+        echo "$vscode_user_dir/instructions/release-workflow.instructions.md"
+    else
+        echo "$PROJECT_DIR/.github/instructions/release-workflow.instructions.md"
+    fi
+}
+
 claude_instruction_target() {
     if [ -f "$PROJECT_DIR/.claude/CLAUDE.md" ] || [ -d "$PROJECT_DIR/.claude" ]; then
         echo "$PROJECT_DIR/.claude/CLAUDE.md"
@@ -454,6 +465,7 @@ install_copilot() {
     local instruction_target
     local skill_target
     local prompt_target
+    local release_instruction_target
 
     say "Installing GitHub Copilot configuration"
     vscode_user_dir="$(detect_vscode_user_dir)"
@@ -462,6 +474,7 @@ install_copilot() {
     instruction_target="$(copilot_instruction_target)"
     skill_target="$(copilot_skill_target)"
     prompt_target="$(copilot_prompt_target)"
+    release_instruction_target="$(copilot_release_instruction_target)"
 
     merge_markdown_block \
         "$SCRIPT_DIR/templates/agent-setup/copilot/copilot-instructions.md" \
@@ -474,6 +487,9 @@ install_copilot() {
     copy_with_backup \
         "$SCRIPT_DIR/templates/agent-setup/copilot/prompts/obo.prompt.md" \
         "$prompt_target"
+    copy_with_backup \
+        "$SCRIPT_DIR/templates/agent-setup/copilot/instructions/release-workflow.instructions.md" \
+        "$release_instruction_target"
     echo ""
 }
 
