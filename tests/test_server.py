@@ -13,6 +13,7 @@ import pytest
 
 import oboe_mcp.server as server_module
 from oboe_mcp.server import (
+    _validate_base_dir,
     obo_complete_child_session,
     obo_complete_session,
     obo_create,
@@ -800,3 +801,56 @@ def test_obo_end_to_end_agent_workflow(base_dir):
         session["file"] == created_session_name
         for session in sessions_data["sessions"]
     )
+
+
+# ---------------------------------------------------------------------------
+# _validate_base_dir / non-existent base_dir diagnostic
+# ---------------------------------------------------------------------------
+
+def test_validate_base_dir_raises_for_missing_path():
+    with pytest.raises(ValueError, match="base_dir does not exist") as exc_info:
+        _validate_base_dir("/nonexistent/path/that/does/not/exist")
+    assert "VS Code workspace is on a REMOTE host" in str(exc_info.value)
+
+
+def test_validate_base_dir_passes_for_existing_path(tmp_path):
+    # Should not raise
+    _validate_base_dir(str(tmp_path))
+
+
+def test_obo_create_returns_error_for_nonexistent_base_dir():
+    result = obo_create(
+        base_dir="/nonexistent/path/that/does/not/exist",
+        title="Test",
+        description="desc",
+    )
+    assert result.startswith("ERROR:")
+    assert "base_dir does not exist" in result
+    assert "REMOTE host" in result
+
+
+def test_obo_list_sessions_returns_error_for_nonexistent_base_dir():
+    result = obo_list_sessions(base_dir="/nonexistent/path/that/does/not/exist")
+    assert result.startswith("ERROR:")
+    assert "base_dir does not exist" in result
+    assert "REMOTE host" in result
+
+
+def test_obo_session_status_returns_error_for_nonexistent_base_dir():
+    result = obo_session_status(
+        session_file="session_20260314_120000.json",
+        base_dir="/nonexistent/path/that/does/not/exist",
+    )
+    assert result.startswith("ERROR:")
+    assert "base_dir does not exist" in result
+    assert "REMOTE host" in result
+
+
+def test_obo_next_returns_error_for_nonexistent_base_dir():
+    result = obo_next(
+        session_file="session_20260314_120000.json",
+        base_dir="/nonexistent/path/that/does/not/exist",
+    )
+    assert result.startswith("ERROR:")
+    assert "base_dir does not exist" in result
+    assert "REMOTE host" in result
