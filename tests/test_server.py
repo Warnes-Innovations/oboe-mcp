@@ -808,13 +808,9 @@ def test_obo_end_to_end_agent_workflow(base_dir):
 # ---------------------------------------------------------------------------
 
 def test_validate_base_dir_raises_for_missing_path():
-    with pytest.raises(ValueError, match="base_dir does not exist"):
+    with pytest.raises(ValueError, match="base_dir does not exist") as exc_info:
         _validate_base_dir("/nonexistent/path/that/does/not/exist")
-
-
-def test_validate_base_dir_includes_remote_ssh_hint():
-    with pytest.raises(ValueError, match="VS Code workspace is on a REMOTE host"):
-        _validate_base_dir("/nonexistent/path/that/does/not/exist")
+    assert "VS Code workspace is on a REMOTE host" in str(exc_info.value)
 
 
 def test_validate_base_dir_passes_for_existing_path(tmp_path):
@@ -847,6 +843,7 @@ def test_obo_session_status_returns_error_for_nonexistent_base_dir():
     )
     assert result.startswith("ERROR:")
     assert "base_dir does not exist" in result
+    assert "REMOTE host" in result
 
 
 def test_obo_next_returns_error_for_nonexistent_base_dir():
@@ -856,3 +853,4 @@ def test_obo_next_returns_error_for_nonexistent_base_dir():
     )
     assert result.startswith("ERROR:")
     assert "base_dir does not exist" in result
+    assert "REMOTE host" in result
