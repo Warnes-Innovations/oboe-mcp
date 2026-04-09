@@ -509,6 +509,42 @@ The Copilot instruction template tells agents to:
 
 The packaged skill provides the trigger logic for when OBO should be used, and the prompt template provides an on-demand `/obo` workflow that walks an agent through the full sequential session lifecycle using the MCP server.
 
+#### VS Code Remote SSH, Dev Containers, and Codespaces
+
+When VS Code connects to a remote host (SSH, Dev Container, or Codespaces), **user-level MCP servers are launched on the local machine**, not on the remote host. This means oboe-mcp will run locally and try to open workspace paths on the local filesystem — but those paths exist only on the remote host.
+
+**Symptom:** tool calls like `obo_list_sessions(base_dir="/home/user/project")` return an error such as:
+
+```
+ERROR: base_dir does not exist: /home/user/project
+
+This often happens when the oboe-mcp server is running on your LOCAL machine
+but your VS Code workspace is on a REMOTE host (SSH, Dev Container, Codespaces).
+...
+```
+
+**Workaround:** Add a workspace-level `.vscode/mcp.json` file inside the remote repository. VS Code Remote will then launch the server on the remote host where the workspace paths are accessible:
+
+```json
+{
+  "servers": {
+    "oboe-mcp": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["oboe-mcp"]
+    }
+  }
+}
+```
+
+This requires `uv` to be installed on the remote host:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Once `uv` is installed and `.vscode/mcp.json` is committed to the repository, VS Code Remote will launch oboe-mcp on the remote host automatically, where it can access workspace paths directly.
+
 #### Codex
 
 For Codex, the same two-part pattern applies: register the MCP server in `~/.codex/config.toml`, then copy or merge the shared OBO instruction template into the target repository's `AGENTS.md`.

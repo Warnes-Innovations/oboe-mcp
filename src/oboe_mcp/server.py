@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Sequence
@@ -45,6 +46,47 @@ mcp = FastMCP("oboe-mcp", instructions="One-By-One session management tools")
 
 _TOOL_EXCEPTIONS = (OSError, ValueError, json.JSONDecodeError)
 
+_REMOTE_SSH_HINT = """\
+
+This often happens when the oboe-mcp server is running on your LOCAL machine
+but your VS Code workspace is on a REMOTE host (SSH, Dev Container, Codespaces).
+
+In that case, the path you passed exists on the remote host but not locally,
+so the server cannot access it.
+
+Workaround: run oboe-mcp on the remote host instead by adding a
+workspace-level .vscode/mcp.json to your remote repository:
+
+  {
+    "servers": {
+      "oboe-mcp": {
+        "type": "stdio",
+        "command": "uvx",
+        "args": ["oboe-mcp"]
+      }
+    }
+  }
+
+This requires uv to be installed on the remote host:
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+
+Once in place, VS Code Remote will launch oboe-mcp on the remote host,
+where it can access the workspace paths directly.
+See: https://github.com/Warnes-Innovations/oboe-mcp/issues/5"""
+
+
+# ---------------------------------------------------------------------------
+# Helper: validate base_dir exists
+# ---------------------------------------------------------------------------
+
+def _validate_base_dir(base_dir: str) -> None:
+    """Raise ValueError with a helpful diagnostic if base_dir does not exist."""
+    if not os.path.exists(base_dir):
+        raise ValueError(
+            f"base_dir does not exist: {base_dir}\n"
+            + _REMOTE_SSH_HINT
+        )
+
 
 # ---------------------------------------------------------------------------
 # Helper: resolve session_file argument
@@ -56,6 +98,7 @@ def _resolve(session_file: str, base_dir: str | None = None) -> Path:
     if p.is_absolute():
         return p
     if base_dir:
+        _validate_base_dir(base_dir)
         return obo_sessions_dir(base_dir) / session_file
     raise ValueError(
         "session_file must be an absolute path or base_dir must be provided"
@@ -86,6 +129,10 @@ def obo_create(
         session_filename: Optional explicit filename.
                           If omitted, generated from current timestamp.
     """
+    try:
+        _validate_base_dir(base_dir)
+    except ValueError as e:
+        return f"ERROR: {e}"
     sessions_dir = obo_sessions_dir(base_dir)
     try:
         if session_filename:
@@ -130,6 +177,10 @@ def obo_list_sessions(
                        or 'incomplete' (incomplete = active or paused sessions
                        with open items)
     """
+    try:
+        _validate_base_dir(base_dir)
+    except ValueError as e:
+        return f"ERROR: {e}"
     sessions_dir = obo_sessions_dir(base_dir)
     if not sessions_dir.exists():
         return json.dumps(
