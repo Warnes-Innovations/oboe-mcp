@@ -1,6 +1,6 @@
 [project]
 name = "oboe-mcp"
-version = "0.1.1"
+version = "0.1.2"
 description = "MCP server for durable one-by-one review workflows, with prioritized session state for coding agents."
 readme = {file = "README.md", content-type = "text/markdown"}
 authors = [{name = "Gregory R. Warnes", email = "greg@warnes-innovations.com"}]

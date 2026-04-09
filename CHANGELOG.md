@@ -8,14 +8,23 @@ For commercial licensing, contact greg@warnes-innovations.com
 
 # Changelog
 
+<!-- markdownlint-disable MD024 -->
+
 All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog and this project uses Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-04-08
+
+### Added
+
+- Release workflow prompt files and shared agent-setup guidance for publishing, dry runs, and blocker triage.
+
 ### Changed
 
+- The installer now copies release workflow instructions into the Copilot agent setup.
 - The console entry point now provides a proper fast-exit help path, so `oboe-mcp --help` prints usage text instead of starting the MCP server.
 
 ## [0.1.1] - 2026-04-08
@@ -46,3 +55,5 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
 ### Initial Release
 
 - Initial OBO MCP server with session creation, listing, item navigation, and item update tools.
+
+<!-- markdownlint-enable MD024 -->
