@@ -11,6 +11,7 @@
 import json
 import pytest
 
+import oboe_mcp.server as server_module
 from oboe_mcp.server import (
     obo_complete_child_session,
     obo_complete_session,
@@ -191,6 +192,39 @@ def test_obo_list_sessions_empty(tmp_path):
     result = obo_list_sessions(base_dir=str(tmp_path))
     data = json.loads(result)
     assert data["sessions"] == []
+
+
+def test_main_help_exits_without_starting_server(monkeypatch, capsys):
+    run_called = False
+
+    def fake_run():
+        nonlocal run_called
+        run_called = True
+
+    monkeypatch.setattr(server_module.mcp, "run", fake_run)
+
+    with pytest.raises(SystemExit) as excinfo:
+        server_module.main(["--help"])
+
+    assert excinfo.value.code == 0
+    assert run_called is False
+    captured = capsys.readouterr()
+    assert "Run the Oboe MCP stdio server" in captured.out
+    assert "usage: oboe-mcp" in captured.out
+
+
+def test_main_without_args_starts_server(monkeypatch):
+    run_called = False
+
+    def fake_run():
+        nonlocal run_called
+        run_called = True
+
+    monkeypatch.setattr(server_module.mcp, "run", fake_run)
+
+    server_module.main([])
+
+    assert run_called is True
 
 
 # ---------------------------------------------------------------------------

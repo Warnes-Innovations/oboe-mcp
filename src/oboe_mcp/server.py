@@ -12,9 +12,10 @@ Uses FastMCP for concise tool registration.
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 from mcp.server.fastmcp import FastMCP
 
@@ -648,7 +649,20 @@ def obo_update_field(
 # Entry point
 # ---------------------------------------------------------------------------
 
-def main() -> None:
+def _build_parser() -> argparse.ArgumentParser:
+    """Build the CLI parser for the console entry point."""
+    parser = argparse.ArgumentParser(
+        prog="oboe-mcp",
+        description=(
+            "Run the Oboe MCP stdio server for one-by-one session "
+            "management tools."
+        ),
+    )
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    _build_parser().parse_args(argv)
     mcp.run()
 
 

@@ -14,6 +14,10 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
 
 ## [Unreleased]
 
+### Changed
+
+- The console entry point now provides a proper fast-exit help path, so `oboe-mcp --help` prints usage text instead of starting the MCP server.
+
 ## [0.1.1] - 2026-04-08
 
 ### Added
