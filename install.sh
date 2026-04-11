@@ -547,6 +547,10 @@ print_plan() {
     echo "The MCP server entries will use this checkout in uvx:"
     echo "  uvx --from $REPO_SOURCE oboe-mcp"
     echo ""
+    echo "Installing oboe-mcp also installs the oboe-cli command-line tool."
+    echo "After installation you can run:"
+    echo "  oboe-cli --help"
+    echo ""
 }
 
 print_summary() {
@@ -562,6 +566,10 @@ print_summary() {
         echo ""
     fi
 
+    echo "The oboe-cli command is installed alongside oboe-mcp and provides"
+    echo "a human-friendly CLI for the same session files the MCP tools operate on."
+    echo "Run 'oboe-cli --help' to see all available commands."
+    echo ""
     echo "If you want clients to install oboe-mcp from the published GitHub URL instead"
     echo "of this local checkout, use the manual commands in README.md and replace the"
     echo "local --from path with git+https://github.com/warnes-innovations/oboe-mcp."
