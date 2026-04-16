@@ -7,9 +7,6 @@
 """Unit tests for cli.py (the `oboe-cli` command)."""
 
 import json
-import textwrap
-from pathlib import Path
-from datetime import datetime
 
 import pytest
 
