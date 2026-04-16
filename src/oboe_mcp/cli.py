@@ -82,7 +82,7 @@ def _print_sessions_table(rows: list[dict]) -> None:
         status   = r.get("status", "")
         print(
             f"{r.get('file', ''):<45} {status:<12} "
-            f"{open_n:<6} {r.get('created', ''):<12} "
+            f"{open_n:<6} {done_n:<10} {r.get('created', ''):<12} "
             f"{r.get('title', '')}"
         )
     print(f"\nTotal: {len(rows)} session(s)")
