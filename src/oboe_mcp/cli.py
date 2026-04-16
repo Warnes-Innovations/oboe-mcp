@@ -80,9 +80,8 @@ def _print_sessions_table(rows: list[dict]) -> None:
         done_n   = r.get("actionable", r.get("pending", 0))
         # Display a rough done fraction from what we have in the index row
         status   = r.get("status", "")
-        flag     = " ⚠" if status == "active" and open_n > 0 else ""
         print(
-            f"{r.get('file', ''):<45} {status + flag:<12} "
+            f"{r.get('file', ''):<45} {status:<12} "
             f"{open_n:<6} {r.get('created', ''):<12} "
             f"{r.get('title', '')}"
         )
