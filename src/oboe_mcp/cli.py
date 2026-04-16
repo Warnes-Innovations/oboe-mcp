@@ -652,20 +652,24 @@ def _cmd_complete_child(args: argparse.Namespace, parser: argparse.ArgumentParse
         return 1
     parent = result["parent_session"]
     child  = result["child_session"]
+    parent_items = parent.get("items", [])
+    total = len(parent_items)
+    done = sum(1 for i in parent_items if i.get("status") in {"completed", "skipped"})
+    pct_done = (done / total * 100.0) if total else 0.0
     print(f"✓ Child session completed: {sf.name}")
     print(f"✓ Parent session resumed: {child.get('parent_session_file', '')}")
     _print_session_status(
         {
             "session_file": parent.get("session_file", ""),
-            "total": len(parent.get("items", [])),
-            "completed": sum(1 for i in parent.get("items", []) if i.get("status") == "completed"),
-            "skipped": sum(1 for i in parent.get("items", []) if i.get("status") == "skipped"),
-            "in_progress": sum(1 for i in parent.get("items", []) if i.get("status") == "in_progress"),
-            "pending": sum(1 for i in parent.get("items", []) if i.get("status") == "pending"),
-            "deferred": sum(1 for i in parent.get("items", []) if i.get("status") == "deferred"),
-            "blocked": sum(1 for i in parent.get("items", []) if i.get("status") == "blocked"),
-            "done": sum(1 for i in parent.get("items", []) if i.get("status") in {"completed", "skipped"}),
-            "pct_done": 0,
+            "total": total,
+            "completed": sum(1 for i in parent_items if i.get("status") == "completed"),
+            "skipped": sum(1 for i in parent_items if i.get("status") == "skipped"),
+            "in_progress": sum(1 for i in parent_items if i.get("status") == "in_progress"),
+            "pending": sum(1 for i in parent_items if i.get("status") == "pending"),
+            "deferred": sum(1 for i in parent_items if i.get("status") == "deferred"),
+            "blocked": sum(1 for i in parent_items if i.get("status") == "blocked"),
+            "done": done,
+            "pct_done": pct_done,
             "categories": {},
         }
     )
