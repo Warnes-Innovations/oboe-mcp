@@ -426,17 +426,19 @@ def _cmd_status(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
 def _cmd_create(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     if not args.session:
         # Auto-generate filename
-        ts      = datetime.now().strftime("%Y%m%d_%H%M%S")
-        sf_name = f"session_{ts}.json"
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        sf = _get_sessions_dir(args.base_dir) / f"session_{ts}.json"
     else:
-        sf_name = args.session
+        session_path = Path(args.session)
         try:
-            validate_session_filename(Path(sf_name).name)
+            validate_session_filename(session_path.name)
         except ValueError as exc:
             parser.error(str(exc))
 
-    sessions_dir = _get_sessions_dir(args.base_dir)
-    sf = sessions_dir / Path(sf_name).name
+        if session_path.is_absolute():
+            sf = session_path
+        else:
+            sf = _get_sessions_dir(args.base_dir) / session_path.name
 
     items = _read_items(args.input_file)
     try:
