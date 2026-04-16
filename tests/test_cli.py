@@ -248,7 +248,7 @@ def test_status_missing_session_returns_error(base_dir):
                   "--session", "session_20260411_999999.json",
                   "status", expect_rc=1)
     # argparse or file-not-found error
-    assert len(err) > 0 or True  # just must not crash
+    assert len(err.strip()) > 0
 
 
 # ---------------------------------------------------------------------------
