@@ -24,8 +24,85 @@ Install or run Oboe MCP directly from PyPI using either of these alternatives:
 - Run it without installing: `uvx oboe-mcp`
 - Install it into your current environment: `pip install oboe-mcp`
 
+Installing `oboe-mcp` also installs the `oboe-cli` command:
 
-## Tools
+```bash
+# After pip install oboe-mcp
+oboe-cli --help
+
+# From PyPI 
+uvx --from oboe-mcp oboe-cli --help
+
+# From a local checkout (no install needed)
+uvx --from /path/to/oboe-mcp oboe-cli --help
+```
+
+
+## CLI Reference (`oboe-cli`)
+
+Installing `oboe-mcp` also installs `oboe-cli`, a human-friendly command-line
+companion for the same session files the MCP tools operate on.
+
+```bash
+oboe-cli [--session SESSION] [--base-dir DIR] COMMAND [ARGS...]
+```
+
+Global options:
+
+| Option | Description |
+| ------ | ----------- |
+| `--session SESSION`, `-s` | Session filename (e.g. `session_20260411_120000.json`) or absolute path |
+| `--base-dir DIR`, `-b` | Project root containing `.github/obo_sessions/` (defaults to CWD detection) |
+
+**Base-dir auto-detection**: when `--base-dir` is omitted, `oboe-cli` uses the
+current working directory if it contains a `.github/obo_sessions/` folder,
+otherwise it falls back to the working directory as-is.
+
+### Commands
+
+| Command | Description |
+| ------- | ----------- |
+| `sessions` | List all sessions (supports `--status active\|paused\|completed\|incomplete`) |
+| `status` | Show session summary statistics |
+| `create` | Create a new session from a JSON items file |
+| `merge` | Append new items to an existing session |
+| `complete-session` | Mark the entire session as completed |
+| `list` | List items, sorted by priority score (supports `--status` filter) |
+| `next` | Show the next actionable item |
+| `show ITEM_ID` | Show full detail for one item |
+| `complete ITEM_ID RESOLUTION...` | Mark an item as completed |
+| `skip ITEM_ID [REASON...]` | Mark an item as skipped |
+| `in-progress ITEM_ID` | Mark an item as in progress |
+| `block ITEM_ID BLOCKER...` | Mark an item as blocked |
+| `approve ITEM_ID approved\|denied\|unreviewed` | Set approval metadata |
+| `update ITEM_ID FIELD VALUE` | Update a single field on an item |
+| `create-child --child-session FILE` | Create a child session and pause the parent |
+| `complete-child [RESOLUTION...]` | Complete a child session and resume the parent |
+
+### Quick start
+
+```bash
+# Create a session from a JSON items file
+oboe-cli --base-dir /path/to/project create \
+    --title "Code review findings" \
+    --input-file findings.json
+
+# List sessions
+oboe-cli --base-dir /path/to/project sessions
+
+# Work through items
+oboe-cli --base-dir /path/to/project --session session_20260411_120000.json next
+oboe-cli --base-dir /path/to/project --session session_20260411_120000.json \
+    in-progress 1
+oboe-cli --base-dir /path/to/project --session session_20260411_120000.json \
+    complete 1 "Fixed the validation bug"
+```
+
+> **Note:** the `obo_helper.py` script shipped in previous versions is now a
+> thin deprecation shim that delegates to `oboe-cli`.
+
+
+
 
 | Tool | Description |
 | ---- | ----------- |
