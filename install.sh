@@ -401,6 +401,8 @@ prompt_project_dir() {
         echo -e "${RED}A project directory is required for this selection.${NC}" >&2
         exit 1
     fi
+    # Expand ~ to $HOME
+    input_path="${input_path/#\~/$HOME}"
     if [ ! -d "$input_path" ]; then
         echo -e "${RED}Directory does not exist: $input_path${NC}" >&2
         exit 1
