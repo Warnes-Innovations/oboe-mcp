@@ -9,26 +9,31 @@
 # mypy: disable-error-code=import-untyped
 
 import json
+from pathlib import Path
 import pytest
 
 import oboe_mcp.server as server_module
 from oboe_mcp.server import (
     _validate_base_dir,
+    obo_cancel_session,
     obo_complete_child_session,
     obo_complete_session,
     obo_create,
     obo_create_child_session,
     obo_get_item,
+    obo_get_session,
     obo_list_items,
     obo_list_sessions,
     obo_mark_blocked,
     obo_mark_complete,
+    obo_mark_deferred,
     obo_mark_in_progress,
     obo_mark_skip,
     obo_merge_items,
     obo_next,
     obo_set_approval,
     obo_session_status,
+    obo_trim_sessions,
     obo_update_field,
 )
 
@@ -79,7 +84,7 @@ def fixture_session_name(base_dir):
         title="Test Session",
         description="Integration test",
         items=SAMPLE_ITEMS,
-        session_filename="session_20260314_120000.json",
+        session_file="session_20260314_120000.json",
     )
     data = json.loads(result)
     return data["session_file"]
@@ -95,7 +100,7 @@ def test_obo_create_returns_metadata(base_dir):
         title="My Session",
         description="desc",
         items=SAMPLE_ITEMS,
-        session_filename="session_20260314_130000.json",
+        session_file="session_20260314_130000.json",
     )
     data = json.loads(result)
     assert data["items_created"] == 3
@@ -109,7 +114,7 @@ def test_obo_create_returns_completed_status_when_all_items_done(base_dir):
         title="Finished Session",
         description="desc",
         items=[{"title": "Done", "status": "completed"}],
-        session_filename="session_20260314_130500.json",
+        session_file="session_20260314_130500.json",
     )
     data = json.loads(result)
     assert data["status"] == "completed"
@@ -121,7 +126,7 @@ def test_obo_create_updates_index(base_dir):
         title="Indexed",
         description="",
         items=SAMPLE_ITEMS,
-        session_filename="session_20260314_140000.json",
+        session_file="session_20260314_140000.json",
     )
     from oboe_mcp.session import obo_sessions_dir, load_index
 
@@ -138,7 +143,7 @@ def test_obo_create_duplicate_returns_error(base_dir, session_name):
         title="Dup",
         description="",
         items=SAMPLE_ITEMS,
-        session_filename=session_name,
+        session_file=session_name,
     )
     assert result.startswith("ERROR:")
 
@@ -149,7 +154,7 @@ def test_obo_create_rejects_invalid_filename(base_dir):
         title="Bad Filename",
         description="desc",
         items=SAMPLE_ITEMS,
-        session_filename="session_bad.json",
+        session_file="session_bad.json",
     )
     assert result.startswith("ERROR:")
 
@@ -159,7 +164,7 @@ def test_obo_create_without_items_creates_empty_session(base_dir):
         base_dir=base_dir,
         title="Empty Session",
         description="no items yet",
-        session_filename="session_20260314_131000.json",
+        session_file="session_20260314_131000.json",
     )
     data = json.loads(result)
     assert data["items_created"] == 0
@@ -172,7 +177,7 @@ def test_obo_create_with_items_none_creates_empty_session(base_dir):
         title="Empty Session None",
         description="no items yet",
         items=None,
-        session_filename="session_20260314_131500.json",
+        session_file="session_20260314_131500.json",
     )
     data = json.loads(result)
     assert data["items_created"] == 0
@@ -187,6 +192,8 @@ def test_obo_list_sessions(base_dir, session_name):
     data = json.loads(result)
     assert data["total"] == 1
     assert data["sessions"][0]["file"] == session_name
+    assert "active_child_session" in data["sessions"][0]
+    assert "parent_session_file" in data["sessions"][0]
 
 
 def test_obo_list_sessions_empty(tmp_path):
@@ -242,6 +249,17 @@ def test_obo_session_status(base_dir, session_name):
     assert data["approval"]["unreviewed"] == 3
 
 
+def test_obo_get_session(base_dir, session_name):
+    result = obo_get_session(session_file=session_name, base_dir=base_dir)
+    data = json.loads(result)
+    assert data["title"] == "Test Session"
+    assert data["status"] == "active"
+    assert data["session_file"] == session_name
+    assert "created" in data
+    assert data["parent_session_file"] is None
+    assert isinstance(data["child_session_files"], list)
+
+
 # ---------------------------------------------------------------------------
 # obo_next
 # ---------------------------------------------------------------------------
@@ -258,7 +276,7 @@ def test_obo_next_no_items(base_dir):
         title="Empty",
         description="",
         items=[{"title": "Done", "status": "completed"}],
-        session_filename="session_20260314_150000.json",
+        session_file="session_20260314_150000.json",
     )
     result = obo_next(
         session_file="session_20260314_150000.json",
@@ -281,7 +299,7 @@ def test_obo_next_returns_deferred_when_review_queue_is_exhausted(base_dir):
                 "approval_mode": "delayed",
             }
         ],
-        session_filename="session_20260314_150500.json",
+        session_file="session_20260314_150500.json",
     )
     result = obo_next(
         session_file="session_20260314_150500.json",
@@ -356,7 +374,7 @@ def test_obo_mark_complete(base_dir, session_name):
     data = json.loads(result)
     assert data["action"] == "completed"
     assert data["resolution"] == "Fixed"
-    assert data["progress"] == "1/3"
+    assert data["progress"] == {"completed": 1, "total": 3, "remaining": 2}
 
 
 def test_obo_mark_complete_unknown_id(base_dir, session_name):
@@ -393,6 +411,31 @@ def test_obo_mark_skip_no_reason(base_dir, session_name):
     )
     data = json.loads(result)
     assert data["action"] == "skipped"
+
+
+def test_obo_mark_deferred(base_dir, session_name):
+    result = obo_mark_deferred(
+        session_file=session_name,
+        item_id="2",
+        reason="Needs more research",
+        deferred_until="2026-06-01",
+        base_dir=base_dir,
+    )
+    data = json.loads(result)
+    assert data["action"] == "deferred"
+    assert data["reason"] == "Needs more research"
+    assert data["deferred_until"] == "2026-06-01"
+
+
+def test_obo_mark_deferred_no_reason(base_dir, session_name):
+    result = obo_mark_deferred(
+        session_file=session_name,
+        item_id="3",
+        base_dir=base_dir,
+    )
+    data = json.loads(result)
+    assert data["action"] == "deferred"
+    assert data["reason"] is None
 
 
 def test_obo_mark_blocked(base_dir, session_name):
@@ -481,7 +524,7 @@ def test_obo_set_approval_delayed_sets_deferred(base_dir, session_name):
         item_id="1",
         approval_status="approved",
         approval_mode="delayed",
-        note="Implement after review",
+        approval_note="Implement after review",
         base_dir=base_dir,
     )
     data = json.loads(result)
@@ -547,8 +590,11 @@ def test_obo_complete_session(base_dir):
         base_dir=base_dir,
         title="Finished",
         description="done",
-        items=[{"title": "Done", "status": "completed"}],
-        session_filename="session_20260314_160000.json",
+        items=[
+            {"title": "Done",    "status": "completed"},
+            {"title": "Skipped", "status": "skipped"},
+        ],
+        session_file="session_20260314_160000.json",
     )
     created_session_name = json.loads(result)["session_file"]
     complete_result = obo_complete_session(
@@ -558,6 +604,9 @@ def test_obo_complete_session(base_dir):
     data = json.loads(complete_result)
     assert data["action"] == "session_completed"
     assert data["session_status"] == "completed"
+    assert data["total"]     == 2
+    assert data["completed"] == 1
+    assert data["skipped"]   == 1
 
 
 def test_obo_merge_items(base_dir, session_name):
@@ -580,7 +629,7 @@ def test_obo_create_child_session(base_dir, session_name):
         items=[{"title": "Child item"}],
         base_dir=base_dir,
         parent_item_id="2",
-        session_filename="session_20260314_165000.json",
+        session_file="session_20260314_165000.json",
     )
     data = json.loads(result)
     assert data["action"] == "child_created"
@@ -594,7 +643,7 @@ def test_obo_create_child_session_without_items(base_dir, session_name):
         title="Empty Child",
         description="child with no initial items",
         base_dir=base_dir,
-        session_filename="session_20260314_165100.json",
+        session_file="session_20260314_165100.json",
     )
     data = json.loads(result)
     assert data["action"] == "child_created"
@@ -609,7 +658,7 @@ def test_obo_complete_child_session(base_dir, session_name):
         items=[{"title": "Child item"}],
         base_dir=base_dir,
         parent_item_id="2",
-        session_filename="session_20260314_165500.json",
+        session_file="session_20260314_165500.json",
     )
     child_session_name = json.loads(create_result)["child_session_file"]
 
@@ -633,7 +682,66 @@ def test_obo_complete_child_session(base_dir, session_name):
     assert data["active_child_session"] is None
 
 
-def test_obo_end_to_end_agent_workflow(base_dir):
+def test_obo_complete_child_session_cancelled_disposition(base_dir, session_name):
+    obo_create_child_session(
+        parent_session_file=session_name,
+        title="Abandoned Child",
+        description="will be cancelled",
+        items=[{"title": "Open task"}],
+        base_dir=base_dir,
+        parent_item_id="2",
+        session_file="session_20260314_166000.json",
+    )
+    result = obo_complete_child_session(
+        child_session_file="session_20260314_166000.json",
+        base_dir=base_dir,
+        resolution="no longer needed",
+        disposition="cancelled",
+    )
+    data = json.loads(result)
+    assert data["action"] == "child_cancelled"
+    assert data["child_status"] == "cancelled"
+    assert data["parent_status"] == "active"
+    assert data["active_child_session"] is None
+
+
+def test_obo_complete_child_session_cancelled_allows_open_items(base_dir, session_name):
+    obo_create_child_session(
+        parent_session_file=session_name,
+        title="Incomplete Child",
+        description="open items remain",
+        items=[{"title": "Unfinished"}],
+        base_dir=base_dir,
+        session_file="session_20260314_166100.json",
+    )
+    # Do NOT finish the item — should succeed anyway
+    result = obo_complete_child_session(
+        child_session_file="session_20260314_166100.json",
+        base_dir=base_dir,
+        disposition="cancelled",
+    )
+    data = json.loads(result)
+    assert data["child_status"] == "cancelled"
+
+
+def test_obo_complete_child_session_invalid_disposition(base_dir, session_name):
+    obo_create_child_session(
+        parent_session_file=session_name,
+        title="X",
+        description="",
+        items=[{"title": "T"}],
+        base_dir=base_dir,
+        session_file="session_20260314_166200.json",
+    )
+    result = obo_complete_child_session(
+        child_session_file="session_20260314_166200.json",
+        base_dir=base_dir,
+        disposition="skipped",
+    )
+    assert result.startswith("ERROR:")
+
+
+
     create_result = obo_create(
         base_dir=base_dir,
         title="Workflow Session",
@@ -656,7 +764,7 @@ def test_obo_end_to_end_agent_workflow(base_dir):
                 "dependencies": 1,
             },
         ],
-        session_filename="session_20260314_170000.json",
+        session_file="session_20260314_170000.json",
     )
     created_session_name = json.loads(create_result)["session_file"]
 
@@ -700,7 +808,7 @@ def test_obo_end_to_end_agent_workflow(base_dir):
         description="resolve external blocker",
         items=[{"title": "Get approval"}],
         base_dir=base_dir,
-        session_filename="session_20260314_170500.json",
+        session_file="session_20260314_170500.json",
     )
     child_session_name = json.loads(child_result)["child_session_file"]
 
@@ -708,7 +816,9 @@ def test_obo_end_to_end_agent_workflow(base_dir):
         session_file=created_session_name,
         base_dir=base_dir,
     )
-    assert paused_parent_next.startswith("ERROR:")
+    paused_data = json.loads(paused_parent_next)
+    assert paused_data["status"] == "paused"
+    assert paused_data["active_child_session"] == child_session_name
 
     child_item_complete = obo_mark_complete(
         session_file=child_session_name,
@@ -854,3 +964,75 @@ def test_obo_next_returns_error_for_nonexistent_base_dir():
     assert result.startswith("ERROR:")
     assert "base_dir does not exist" in result
     assert "REMOTE host" in result
+
+
+# ---------------------------------------------------------------------------
+# obo_cancel_session
+# ---------------------------------------------------------------------------
+
+def test_obo_cancel_session(base_dir, session_name):
+    result = json.loads(obo_cancel_session(session_file=session_name, base_dir=base_dir))
+    assert result["status"] == "ok"
+    assert result["session_status"] == "cancelled"
+
+
+def test_obo_cancel_session_with_reason(base_dir, session_name):
+    result = json.loads(obo_cancel_session(session_file=session_name, base_dir=base_dir,
+                                           cancel_reason="superseded"))
+    assert result["cancel_reason"] == "superseded"
+
+
+def test_obo_cancel_session_reports_open_items(base_dir, session_name):
+    result = json.loads(obo_cancel_session(session_file=session_name, base_dir=base_dir))
+    assert result["open_items_remaining"] == len(SAMPLE_ITEMS)
+
+
+def test_obo_cancel_session_missing_file(base_dir):
+    result = obo_cancel_session(session_file="session_20260101_000000.json", base_dir=base_dir)
+    assert result.startswith("ERROR:")
+
+
+# ---------------------------------------------------------------------------
+# obo_trim_sessions
+# ---------------------------------------------------------------------------
+
+def test_obo_trim_sessions_completed(base_dir):
+    from oboe_mcp.session import create_session
+    sessions_dir = Path(base_dir) / ".github" / "obo_sessions"
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+    sf = sessions_dir / "session_20260101_010000.json"
+    # Pre-completed item so session appears completed in index
+    create_session(sf, [{"title": "Done", "status": "completed"}], title="Completed")
+
+    result = json.loads(obo_trim_sessions(base_dir=base_dir, before="now",
+                                          status_filter="completed"))
+    assert result["total_deleted"] >= 1
+    assert not sf.exists()
+
+
+def test_obo_trim_sessions_dry_run(base_dir):
+    from oboe_mcp.session import create_session
+    sessions_dir = Path(base_dir) / ".github" / "obo_sessions"
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+    sf = sessions_dir / "session_20260101_010000.json"
+    create_session(sf, [{"title": "Done", "status": "completed"}], title="Completed")
+
+    result = json.loads(obo_trim_sessions(base_dir=base_dir, before="now",
+                                          status_filter="completed", dry_run=True))
+    assert result["dry_run"] is True
+    assert sf.exists()
+
+
+def test_obo_trim_sessions_any_status(base_dir):
+    from oboe_mcp.session import create_session, cancel_session
+    sessions_dir = Path(base_dir) / ".github" / "obo_sessions"
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+    sf1 = sessions_dir / "session_20260101_010000.json"
+    sf2 = sessions_dir / "session_20260101_020000.json"
+    # Pre-completed item for sf1; cancelled for sf2
+    create_session(sf1, [{"title": "Done", "status": "completed"}], title="Completed")
+    create_session(sf2, SAMPLE_ITEMS, title="Cancelled")
+    cancel_session(sf2)
+
+    result = json.loads(obo_trim_sessions(base_dir=base_dir, before="now", status_filter="any"))
+    assert result["total_deleted"] == 2

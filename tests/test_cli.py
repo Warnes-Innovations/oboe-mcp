@@ -126,6 +126,13 @@ def test_sessions_filter_active(base_dir, items_file):
     assert "Active One" in out
 
 
+def test_sessions_active_flag_shorthand(base_dir, items_file):
+    _run("--base-dir", str(base_dir), "create",
+         "--title", "Active Two", "--input-file", str(items_file))
+    out, _ = _run("--base-dir", str(base_dir), "sessions", "--active")
+    assert "Active Two" in out
+
+
 def test_sessions_filter_completed_empty(base_dir, items_file):
     _run("--base-dir", str(base_dir), "create",
          "--title", "Still Active", "--input-file", str(items_file))
@@ -196,6 +203,37 @@ def test_create_non_array_json_returns_error(base_dir, tmp_path):
     assert "array" in err.lower()
 
 
+def test_create_inline_items(base_dir):
+    """--items inline JSON should work the same as --input-file."""
+    inline = json.dumps([{"title": "Inline task", "id": "t1"}])
+    out, _ = _run("--base-dir", str(base_dir), "create",
+                  "--title", "Inline Test",
+                  "--items", inline)
+    assert "Session created" in out
+    assert "Items: 1" in out
+
+
+def test_merge_inline_items(base_dir, session_file):
+    """--items inline JSON should work for merge too."""
+    inline = json.dumps([{"title": "Merged via inline"}])
+    out, _ = _run("--base-dir", str(base_dir),
+                  "--session", session_file.name,
+                  "merge", "--items", inline)
+    assert "1 item(s) merged" in out
+
+
+def test_create_child_inline_items(base_dir, sessions_dir, session_file):
+    """create-child should accept --items inline JSON."""
+    inline = json.dumps([{"title": "Child inline task"}])
+    out, _ = _run("--base-dir", str(base_dir),
+                  "--session", session_file.name,
+                  "create-child",
+                  "--title", "Child Inline",
+                  "--items", inline)
+    assert "Child session created" in out
+    assert "Parent session paused" in out
+
+
 # ---------------------------------------------------------------------------
 # merge
 # ---------------------------------------------------------------------------
@@ -249,6 +287,17 @@ def test_status_missing_session_returns_error(base_dir):
                   "status", expect_rc=1)
     # argparse or file-not-found error
     assert len(err.strip()) > 0
+
+
+def test_status_compact_one_line(base_dir, session_file):
+    out, _ = _run("--base-dir", str(base_dir),
+                  "--session", session_file.name, "status", "--compact")
+    lines = [l for l in out.strip().splitlines() if l.strip()]
+    assert len(lines) == 1
+    assert "done" in lines[0]
+    assert "pending" in lines[0]
+    assert "in-progress" in lines[0]
+    assert "blocked" in lines[0]
 
 
 # ---------------------------------------------------------------------------
@@ -316,6 +365,16 @@ def test_next_shows_progress_line(base_dir, session_file):
     assert "Progress:" in out
 
 
+def test_next_mark_in_progress_flag(base_dir, session_file):
+    out, _ = _run("--base-dir", str(base_dir),
+                  "--session", session_file.name, "next", "--mark-in-progress")
+    assert "Progress:" in out
+    # Verify the item is now in-progress
+    out2, _ = _run("--base-dir", str(base_dir),
+                   "--session", session_file.name, "next")
+    assert "in-progress" in out2.lower() or "in_progress" in out2.lower()
+
+
 # ---------------------------------------------------------------------------
 # show
 # ---------------------------------------------------------------------------
@@ -340,6 +399,17 @@ def test_show_string_id(base_dir, session_file):
     assert "Beta" in out
 
 
+def test_show_fields_limits_output(base_dir, session_file):
+    out, _ = _run("--base-dir", str(base_dir),
+                  "--session", session_file.name,
+                  "show", "1", "--fields", "id,title,status")
+    assert "title" in out
+    assert "status" in out
+    # Fields not requested should not appear
+    assert "description" not in out
+    assert "category" not in out
+
+
 # ---------------------------------------------------------------------------
 # complete
 # ---------------------------------------------------------------------------
@@ -347,30 +417,38 @@ def test_show_string_id(base_dir, session_file):
 def test_complete_marks_item_done(base_dir, session_file):
     out, _ = _run("--base-dir", str(base_dir),
                   "--session", session_file.name,
-                  "complete", "1", "Fixed the issue")
+                  "complete", "1", "--resolution", "Fixed the issue")
     assert "marked completed" in out
 
 
 def test_complete_shows_progress(base_dir, session_file):
     out, _ = _run("--base-dir", str(base_dir),
                   "--session", session_file.name,
-                  "complete", "1", "Done")
+                  "complete", "1", "--resolution", "Done")
     assert "1/3" in out
 
 
 def test_complete_unknown_id_returns_error(base_dir, session_file):
     _, err = _run("--base-dir", str(base_dir),
                   "--session", session_file.name,
-                  "complete", "999", "Done",
+                  "complete", "999", "--resolution", "Done",
                   expect_rc=1)
     assert len(err) > 0
 
 
-def test_complete_multiword_resolution(base_dir, session_file):
+def test_complete_resolution_flag(base_dir, session_file):
     out, _ = _run("--base-dir", str(base_dir),
                   "--session", session_file.name,
-                  "complete", "1", "Fixed", "the", "race", "condition")
+                  "complete", "1", "--resolution", "Fixed via --resolution flag")
     assert "marked completed" in out
+
+
+def test_complete_requires_resolution(base_dir, session_file):
+    _, err = _run("--base-dir", str(base_dir),
+                  "--session", session_file.name,
+                  "complete", "1",
+                  expect_rc=2)
+    assert "resolution" in err.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -479,21 +557,21 @@ def test_approve_denied(base_dir, session_file):
 def test_approve_with_mode(base_dir, session_file):
     out, _ = _run("--base-dir", str(base_dir),
                   "--session", session_file.name,
-                  "approve", "1", "approved", "--mode", "delayed")
+                  "approve", "1", "approved", "--approval-mode", "delayed")
     assert "delayed" in out
 
 
 def test_approve_with_note(base_dir, session_file):
     out, _ = _run("--base-dir", str(base_dir),
                   "--session", session_file.name,
-                  "approve", "1", "approved", "--note", "Great work")
+                  "approve", "1", "approved", "--approval-note", "Great work")
     assert "Great work" in out
 
 
 def test_approve_mode_without_approved_returns_error(base_dir, session_file):
     _, err = _run("--base-dir", str(base_dir),
                   "--session", session_file.name,
-                  "approve", "1", "denied", "--mode", "delayed",
+                  "approve", "1", "denied", "--approval-mode", "delayed",
                   expect_rc=1)
     assert len(err) > 0
 
@@ -621,6 +699,28 @@ def test_create_child_without_parent_item_id(base_dir, sessions_dir, session_fil
     assert "Child session created" in out
 
 
+def test_create_child_auto_generates_filename(base_dir, sessions_dir, session_file, tmp_path):
+    """--child-session may be omitted; CLI should auto-generate a valid filename."""
+    items_f = tmp_path / "ci.json"
+    items_f.write_text(json.dumps([{"title": "Auto-named sub"}]))
+
+    out, _ = _run("--base-dir", str(base_dir),
+                  "--session", session_file.name,
+                  "create-child",
+                  "--title", "Auto Child",
+                  "--input-file", str(items_f))
+    assert "Child session created" in out
+    assert "Parent session paused" in out
+    # A file matching session_YYYYMMDD_HHMMSS.json should now exist
+    created = [
+        f for f in sessions_dir.iterdir()
+        if f.name != session_file.name and f.name != "index.json"
+    ]
+    assert len(created) == 1
+    assert created[0].name.startswith("session_")
+    assert created[0].name.endswith(".json")
+
+
 def test_complete_child_resumes_parent(base_dir, sessions_dir, session_file, tmp_path):
     child_name = "session_20260411_212000.json"
     items_f = tmp_path / "ci.json"
@@ -653,7 +753,7 @@ def test_complete_child_resumes_parent(base_dir, sessions_dir, session_file, tmp
     ["list"],
     ["next"],
     ["show", "1"],
-    ["complete", "1", "done"],
+    ["complete", "1", "--resolution", "done"],
     ["skip", "1"],
     ["in-progress", "1"],
     ["block", "1", "reason"],
@@ -669,6 +769,33 @@ def test_session_required_commands_fail_without_session(base_dir, cmd_args):
         assert rc == 1, (
             f"Expected rc=1 (or SystemExit) for {cmd_args!r}, got rc={rc}"
         )
+    except SystemExit as exc:
+        assert exc.code != 0
+
+
+def test_auto_infer_session_when_one_active(base_dir, session_file):
+    """When --session is omitted and exactly one active session exists, infer it."""
+    out, _ = _run("--base-dir", str(base_dir), "status")
+    # Should succeed — status output contains totals
+    assert "total" in out.lower() or "pending" in out.lower() or "completed" in out.lower()
+
+
+def test_auto_infer_session_next_when_one_active(base_dir, session_file):
+    """next command should auto-infer the single active session."""
+    out, _ = _run("--base-dir", str(base_dir), "next")
+    assert "NEXT ITEM" in out or "all items" in out.lower()
+
+
+def test_auto_infer_session_fails_when_multiple_active(base_dir, sessions_dir, session_file, tmp_path):
+    """When multiple active sessions exist, --session is required."""
+    # Create a second distinct session
+    _run("--base-dir", str(base_dir),
+         "--session", "session_20260411_130000.json",
+         "create",
+         "--title", "Second", "--items", json.dumps([{"title": "Task B"}]))
+    try:
+        rc = main(["--base-dir", str(base_dir), "status"])
+        assert rc == 1
     except SystemExit as exc:
         assert exc.code != 0
 
@@ -708,3 +835,77 @@ def test_resolve_base_dir_explicit_overrides_cwd(tmp_path, monkeypatch):
 def test_sessions_with_missing_obo_sessions_dir(tmp_path):
     out, _ = _run("--base-dir", str(tmp_path), "sessions")
     assert "no" in out.lower() or "found" in out.lower()
+
+
+# ---------------------------------------------------------------------------
+# cancel-session command
+# ---------------------------------------------------------------------------
+
+def test_cancel_session_command(base_dir, session_file):
+    out, _ = _run("--base-dir", str(base_dir), "--session", session_file.name, "cancel-session")
+    assert "cancelled" in out.lower()
+
+
+def test_cancel_session_with_reason(base_dir, session_file):
+    out, _ = _run("--base-dir", str(base_dir), "--session", session_file.name,
+                  "cancel-session", "superseded", "by", "newer", "session")
+    assert "superseded" in out
+
+
+def test_cancel_session_reports_open_items(base_dir, session_file, sample_items):
+    out, _ = _run("--base-dir", str(base_dir), "--session", session_file.name, "cancel-session")
+    # Reports leftover open items
+    assert str(len(sample_items)) in out
+
+
+def test_cancel_session_unknown_file_returns_error(base_dir):
+    _, err = _run("--base-dir", str(base_dir), "--session", "session_20260101_000000.json",
+                  "cancel-session", expect_rc=1)
+    assert len(err.strip()) > 0
+
+
+# ---------------------------------------------------------------------------
+# trim-sessions command
+# ---------------------------------------------------------------------------
+
+def test_trim_sessions_command_completed(base_dir, sessions_dir, sample_items):
+    from oboe_mcp.session import cancel_session as _cancel
+    sf = sessions_dir / "session_20260101_120000.json"
+    # Use pre-completed item so session appears completed in index
+    create_session(sf, [{"title": "A", "status": "completed"}], title="Old done")
+
+    out, _ = _run("--base-dir", str(base_dir), "trim-sessions", "--before", "now")
+    assert "Deleted 1" in out or "1 session" in out
+    assert not sf.exists()
+
+
+def test_trim_sessions_dry_run_output(base_dir, sessions_dir, sample_items):
+    sf = sessions_dir / "session_20260101_120000.json"
+    create_session(sf, [{"title": "A", "status": "completed"}], title="Old done")
+
+    out, _ = _run("--base-dir", str(base_dir), "trim-sessions", "--before", "now", "--dry-run")
+    assert "DRY RUN" in out or "dry" in out.lower()
+    assert sf.exists()
+
+
+def test_trim_sessions_status_any(base_dir, sessions_dir, sample_items):
+    from oboe_mcp.session import cancel_session as _cancel
+    sf_comp = sessions_dir / "session_20260101_120000.json"
+    sf_canc = sessions_dir / "session_20260101_130000.json"
+    create_session(sf_comp, [{"title": "A", "status": "completed"}], title="Completed")
+    create_session(sf_canc, sample_items, title="Cancelled")
+    _cancel(sf_canc)
+
+    out, _ = _run("--base-dir", str(base_dir), "trim-sessions", "--before", "now", "--status", "any")
+    assert "Deleted 2" in out or "2 session" in out
+
+
+def test_trim_sessions_cancelled_status(base_dir, sessions_dir, sample_items):
+    from oboe_mcp.session import cancel_session as _cancel
+    sf = sessions_dir / "session_20260101_120000.json"
+    create_session(sf, sample_items, title="Cancelled")
+    _cancel(sf)
+
+    out, _ = _run("--base-dir", str(base_dir), "trim-sessions", "--before", "now", "--status", "cancelled")
+    assert "Deleted 1" in out or "1 session" in out
+    assert not sf.exists()

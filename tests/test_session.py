@@ -14,6 +14,8 @@ from oboe_mcp.session import (
     complete_session,
     create_child_session,
     create_session,
+    cancel_session,
+    trim_sessions,
     get_item,
     get_next,
     list_items,
@@ -753,6 +755,86 @@ def test_complete_child_session_requires_parent_metadata(sessions_dir):
         complete_child_session(sf)
 
 
+def test_complete_child_session_invalid_disposition_raises(session_file, sessions_dir):
+    child_sf = sessions_dir / "session_20260314_202000.json"
+    create_child_session(
+        session_file, child_sf, [{"title": "T"}], parent_item_id=2,
+    )
+    with pytest.raises(ValueError, match="Invalid disposition"):
+        complete_child_session(child_sf, disposition="skipped")
+
+
+def test_complete_child_session_cancelled_does_not_require_all_items_done(
+    session_file, sessions_dir
+):
+    child_sf = sessions_dir / "session_20260314_202100.json"
+    create_child_session(
+        session_file, child_sf, [{"title": "Open task"}], parent_item_id=2,
+    )
+    # Do NOT mark any items done — cancellation should still succeed
+    result = complete_child_session(child_sf, disposition="cancelled")
+    child_session = result["child_session"]
+    assert child_session["status"] == "cancelled"
+
+
+def test_complete_child_session_cancelled_unblocks_parent_item(
+    session_file, sessions_dir
+):
+    child_sf = sessions_dir / "session_20260314_202200.json"
+    create_child_session(
+        session_file, child_sf, [{"title": "T"}], parent_item_id=2,
+    )
+    result = complete_child_session(child_sf, disposition="cancelled")
+    parent_session = result["parent_session"]
+    assert parent_session["active_child_session"] is None
+    parent_item = next(i for i in parent_session["items"] if i["id"] == 2)
+    assert parent_item["status"] == "pending"
+    assert parent_item["blocker"] is None
+
+
+def test_complete_child_session_cancelled_stores_default_resolution_note(
+    session_file, sessions_dir
+):
+    child_sf = sessions_dir / "session_20260314_202300.json"
+    create_child_session(
+        session_file, child_sf, [{"title": "T"}], parent_item_id=2,
+    )
+    result = complete_child_session(child_sf, disposition="cancelled")
+    parent_item = next(
+        i for i in result["parent_session"]["items"] if i["id"] == 2
+    )
+    assert "cancelled" in parent_item["child_session_resolution"].lower()
+
+
+def test_complete_child_session_cancelled_uses_resolution_as_note(
+    session_file, sessions_dir
+):
+    child_sf = sessions_dir / "session_20260314_202400.json"
+    create_child_session(
+        session_file, child_sf, [{"title": "T"}], parent_item_id=2,
+    )
+    result = complete_child_session(
+        child_sf, resolution="superseded by new approach", disposition="cancelled"
+    )
+    parent_item = next(
+        i for i in result["parent_session"]["items"] if i["id"] == 2
+    )
+    assert parent_item["child_session_resolution"] == "superseded by new approach"
+
+
+def test_complete_child_session_cancelled_stores_reason_on_child(
+    session_file, sessions_dir
+):
+    child_sf = sessions_dir / "session_20260314_202500.json"
+    create_child_session(
+        session_file, child_sf, [{"title": "T"}], parent_item_id=2,
+    )
+    result = complete_child_session(
+        child_sf, resolution="no longer needed", disposition="cancelled"
+    )
+    assert result["child_session"].get("cancel_reason") == "no longer needed"
+
+
 # ---------------------------------------------------------------------------
 # obo_sessions_dir / resolve_session_file
 # ---------------------------------------------------------------------------
@@ -1022,3 +1104,153 @@ def test_upsert_repairs_wrong_format_version(sessions_dir, sample_items):
     idx = json.loads((sessions_dir / "index.json").read_text())
     assert idx["format_version"] == 1
     assert any(s["file"] == sf1.name for s in idx["sessions"])
+
+
+# ---------------------------------------------------------------------------
+# cancel_session
+# ---------------------------------------------------------------------------
+
+def test_cancel_session_sets_status(sessions_dir, sample_items):
+    sf = sessions_dir / "session_20260314_120000.json"
+    create_session(sf, sample_items, title="To cancel")
+    session = cancel_session(sf)
+    assert session["status"] == "cancelled"
+
+
+def test_cancel_session_stores_cancelled_at(sessions_dir, sample_items):
+    sf = sessions_dir / "session_20260314_120001.json"
+    create_session(sf, sample_items, title="To cancel 2")
+    session = cancel_session(sf)
+    assert "cancelled_at" in session
+    assert session["cancelled_at"]  # non-empty string
+
+
+def test_cancel_session_stores_reason(sessions_dir, sample_items):
+    sf = sessions_dir / "session_20260314_120002.json"
+    create_session(sf, sample_items, title="To cancel 3")
+    session = cancel_session(sf, reason="superseded")
+    assert session.get("cancel_reason") == "superseded"
+
+
+def test_cancel_session_no_reason(sessions_dir, sample_items):
+    sf = sessions_dir / "session_20260314_120003.json"
+    create_session(sf, sample_items, title="To cancel 4")
+    session = cancel_session(sf)
+    assert session.get("cancel_reason", "") == ""
+
+
+def test_cancel_session_updates_index(sessions_dir, sample_items):
+    sf = sessions_dir / "session_20260314_120004.json"
+    create_session(sf, sample_items, title="To cancel 5")
+    cancel_session(sf)
+    rows = list_sessions(sessions_dir, status_filter="cancelled")
+    assert any(r["file"] == sf.name for r in rows)
+
+
+def test_cancel_session_open_items_preserved(sessions_dir, sample_items):
+    """Cancelling a session must not alter item statuses."""
+    sf = sessions_dir / "session_20260314_120005.json"
+    create_session(sf, sample_items, title="Cancel with open items")
+    session = cancel_session(sf)
+    open_items = [i for i in session["items"] if i["status"] == "pending"]
+    assert len(open_items) == len(sample_items)
+
+
+def test_sync_status_preserves_cancelled(sessions_dir, sample_items):
+    """_sync_session_status must not reactivate a cancelled session."""
+    from oboe_mcp.session import _sync_session_status
+    sf = sessions_dir / "session_20260314_120006.json"
+    create_session(sf, sample_items, title="Cancelled check")
+    session = cancel_session(sf)
+    status_before = session["status"]
+    _sync_session_status(session)
+    assert session["status"] == status_before == "cancelled"
+
+
+# ---------------------------------------------------------------------------
+# trim_sessions
+# ---------------------------------------------------------------------------
+
+def test_trim_sessions_deletes_completed(sessions_dir, sample_items):
+    sf1 = sessions_dir / "session_20260314_120000.json"
+    sf2 = sessions_dir / "session_20260314_130000.json"
+    # Create sf1 with a pre-completed item so _sync_session_status marks it completed
+    create_session(sf1, [{"title": "A", "status": "completed"}], title="Done")
+    create_session(sf2, sample_items, title="Active")
+
+    result = trim_sessions(sessions_dir, status_filter="completed")
+    assert sf1.name in result["deleted"]
+    assert not sf1.exists()
+    assert sf2.exists()
+
+
+def test_trim_sessions_dry_run_does_not_delete(sessions_dir, sample_items):
+    sf = sessions_dir / "session_20260314_120000.json"
+    # Pre-completed item so session shows as completed in the index
+    create_session(sf, [{"title": "A", "status": "completed"}], title="Done")
+
+    result = trim_sessions(sessions_dir, status_filter="completed", dry_run=True)
+    assert result["dry_run"] is True
+    assert sf.exists()  # not deleted
+    assert sf.name in result["deleted"]
+
+
+def test_trim_sessions_before_filter(sessions_dir, sample_items):
+    import json as _json
+    from oboe_mcp.session import _upsert_index
+    sf_old = sessions_dir / "session_20260101_000000.json"
+    sf_new = sessions_dir / "session_20260314_120000.json"
+    # Both sessions created with pre-completed items so they appear completed in index
+    create_session(sf_old, [{"title": "A", "status": "completed"}], title="Old")
+    create_session(sf_new, [{"title": "B", "status": "completed"}], title="New")
+    # Backdate sf_old's created field so it falls before the cutoff
+    s_old = _json.loads(sf_old.read_text())
+    s_old["created"] = "2026-01-01T00:00:00"
+    sf_old.write_text(_json.dumps(s_old))
+    _upsert_index(sessions_dir, s_old, sf_old.name)
+
+    # Use a cutoff that includes only sf_old (created 2026-01-01 < 2026-02-01)
+    cutoff = "2026-02-01T00:00:00"
+    result = trim_sessions(sessions_dir, before=cutoff, status_filter="completed")
+    assert sf_old.name in result["deleted"]
+    assert sf_new.name not in result["deleted"]
+    assert not sf_old.exists()
+    assert sf_new.exists()
+
+
+def test_trim_sessions_before_now_deletes_all_matching(sessions_dir, sample_items):
+    sf1 = sessions_dir / "session_20260314_120000.json"
+    sf2 = sessions_dir / "session_20260314_130000.json"
+    # Pre-completed items so sessions appear completed in index
+    create_session(sf1, [{"title": "A", "status": "completed"}], title="Done 1")
+    create_session(sf2, [{"title": "B", "status": "completed"}], title="Done 2")
+
+    result = trim_sessions(sessions_dir, before="now", status_filter="completed")
+    assert not sf1.exists()
+    assert not sf2.exists()
+    assert result["total_deleted"] == 2
+
+
+def test_trim_sessions_status_filter_none_matches_any(sessions_dir, sample_items):
+    sf_comp = sessions_dir / "session_20260314_120000.json"
+    sf_canc = sessions_dir / "session_20260314_130000.json"
+    # Pre-completed item so session appears completed in index
+    create_session(sf_comp, [{"title": "A", "status": "completed"}], title="Completed")
+    create_session(sf_canc, sample_items, title="Cancelled")
+    cancel_session(sf_canc)
+
+    result = trim_sessions(sessions_dir, before="now", status_filter=None)
+    assert result["total_deleted"] == 2
+
+
+def test_trim_sessions_rebuilds_index(sessions_dir, sample_items):
+    sf = sessions_dir / "session_20260314_120000.json"
+    sf2 = sessions_dir / "session_20260314_130000.json"
+    # Pre-completed item so session appears completed in index
+    create_session(sf, [{"title": "A", "status": "completed"}], title="Done")
+    create_session(sf2, sample_items, title="Kept")
+
+    trim_sessions(sessions_dir, status_filter="completed")
+    rows = list_sessions(sessions_dir)
+    assert not any(r["file"] == sf.name for r in rows)
+    assert any(r["file"] == sf2.name for r in rows)

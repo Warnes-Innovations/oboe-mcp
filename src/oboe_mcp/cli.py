@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Sequence
 
 from oboe_mcp.session import (
+    cancel_session,
     complete_child_session,
     complete_session,
     create_child_session,
@@ -40,6 +41,7 @@ from oboe_mcp.session import (
     resolve_session_file,
     session_status,
     set_approval,
+    trim_sessions,
     update_field,
     validate_session_filename,
 )
@@ -240,28 +242,82 @@ def _build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("sessions", help="List all sessions")
     p.add_argument(
         "--status",
-        choices=["active", "paused", "completed", "incomplete"],
+        choices=["active", "paused", "completed", "cancelled", "incomplete"],
         default=None,
         help="Filter by session status",
     )
+    p.add_argument(
+        "--active",
+        action="store_true",
+        default=False,
+        help="Shorthand for --status active",
+    )
 
     # --- status (session-level) ---------------------------------------------
-    sub.add_parser("status", help="Show session summary statistics")
+    p = sub.add_parser("status", help="Show session summary statistics")
+    p.add_argument(
+        "--compact",
+        action="store_true",
+        default=False,
+        help="One-line summary output",
+    )
 
     # --- create -------------------------------------------------------------
     p = sub.add_parser("create", help="Create a new session")
     p.add_argument("--title",       default="", help="Session title")
     p.add_argument("--description", default="", help="Session description")
-    _add_input_file(p)
+    _add_items_input(p)
 
     # --- merge --------------------------------------------------------------
     p = sub.add_parser("merge", help="Append new items to an existing session")
-    _add_input_file(p)
+    _add_items_input(p)
 
     # --- complete-session ---------------------------------------------------
     sub.add_parser(
         "complete-session",
         help="Mark the entire session as completed",
+    )
+
+    # --- cancel-session -----------------------------------------------------
+    p = sub.add_parser(
+        "cancel-session",
+        help="Mark a session as cancelled (abandoned/superseded)",
+    )
+    p.add_argument(
+        "reason",
+        nargs="*",
+        help="Optional reason for cancellation",
+    )
+
+    # --- trim-sessions ------------------------------------------------------
+    p = sub.add_parser(
+        "trim-sessions",
+        help="Delete session files by age and/or status",
+    )
+    p.add_argument(
+        "--before",
+        metavar="DATE",
+        default=None,
+        help=(
+            "Delete sessions created before this date "
+            "(ISO-8601, e.g. 2026-01-01, or 'now' to delete all matching)"
+        ),
+    )
+    p.add_argument(
+        "--status",
+        dest="trim_status",
+        choices=["active", "paused", "completed", "cancelled", "any"],
+        default="completed",
+        help=(
+            "Only delete sessions with this status "
+            "(default: completed; use 'any' to match all statuses)"
+        ),
+    )
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="Show what would be deleted without removing any files",
     )
 
     # --- list ---------------------------------------------------------------
@@ -277,16 +333,34 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     # --- next ---------------------------------------------------------------
-    sub.add_parser("next", help="Show the next actionable item")
+    p = sub.add_parser("next", help="Show the next actionable item")
+    p.add_argument(
+        "--mark-in-progress",
+        dest="mark_in_progress",
+        action="store_true",
+        default=False,
+        help="Also mark the item in-progress",
+    )
 
     # --- show ---------------------------------------------------------------
     p = sub.add_parser("show", help="Show full detail for one item")
     p.add_argument("item_id", help="Item ID")
+    p.add_argument(
+        "--fields",
+        default=None,
+        metavar="FIELDS",
+        help="Comma-separated list of fields to display (e.g. id,title,status)",
+    )
 
     # --- complete -----------------------------------------------------------
     p = sub.add_parser("complete", help="Mark an item as completed")
     p.add_argument("item_id", help="Item ID")
-    p.add_argument("resolution", nargs="+", help="Resolution description")
+    p.add_argument(
+        "--resolution",
+        required=True,
+        metavar="TEXT",
+        help="Resolution description",
+    )
 
     # --- skip ---------------------------------------------------------------
     p = sub.add_parser("skip", help="Mark an item as skipped")
@@ -311,13 +385,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Approval decision",
     )
     p.add_argument(
-        "--mode",
+        "--approval-mode",
         dest="approval_mode",
         choices=["immediate", "delayed"],
         default=None,
         help="Approval timing (only for approved)",
     )
-    p.add_argument("--note", default=None, help="Approval note")
+    p.add_argument("--approval-note", dest="approval_note", default=None, help="Approval note")
     p.add_argument(
         "--lifecycle-status",
         dest="lifecycle_status",
@@ -347,31 +421,42 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--child-session",
         dest="child_session",
-        required=True,
+        default=None,
         metavar="CHILD_SESSION",
-        help="Filename for the new child session (e.g. session_YYYYMMDD_HHMMSS.json)",
+        help="Filename for the new child session (auto-generated if omitted)",
     )
-    _add_input_file(p)
+    _add_items_input(p)
 
     # --- complete-child -----------------------------------------------------
     p = sub.add_parser(
         "complete-child",
-        help="Complete a child session and resume the parent",
+        help="Close a child session and resume the parent",
     )
     p.add_argument(
         "resolution",
         nargs="*",
-        help="Resolution summary for the parent item",
+        help="Resolution summary stored on the unblocked parent item",
+    )
+    p.add_argument(
+        "--disposition",
+        choices=["completed", "cancelled"],
+        default="completed",
+        help="'completed' (default, all items must be done) or 'cancelled' (abandoned, open items allowed)",
     )
 
     return parser
 
 
-def _add_input_file(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
+def _add_items_input(parser: argparse.ArgumentParser) -> None:
+    grp = parser.add_mutually_exclusive_group(required=True)
+    grp.add_argument(
+        "--items",
+        metavar="JSON",
+        help="Inline JSON array of items, or '-' to read from stdin",
+    )
+    grp.add_argument(
         "--input-file", "-i",
         metavar="FILE",
-        required=True,
         help="Path to a JSON file containing the items list",
     )
 
@@ -396,10 +481,40 @@ def _read_items(input_file: str) -> list[dict]:
     return data
 
 
+def _resolve_items(args: argparse.Namespace) -> list[dict]:
+    """Return items from --items inline JSON/stdin or --input-file."""
+    if getattr(args, "items", None) is not None:
+        raw = sys.stdin.read() if args.items == "-" else args.items
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            print(f"❌ Invalid JSON: {exc}", file=sys.stderr)
+            sys.exit(1)
+        if not isinstance(data, list):
+            print("❌ Expected a JSON array", file=sys.stderr)
+            sys.exit(1)
+        return data
+    return _read_items(args.input_file)
+
+
 def _require_session(args: argparse.Namespace, parser: argparse.ArgumentParser) -> Path:
-    if not args.session:
-        parser.error("--session is required for this command")
-    return _get_session_file(args.session, args.base_dir)
+    if args.session:
+        return _get_session_file(args.session, args.base_dir)
+    # Auto-infer: succeed only when exactly one active session exists
+    sessions_dir = _get_sessions_dir(args.base_dir)
+    if sessions_dir.exists():
+        active = [
+            r for r in list_sessions(sessions_dir)
+            if r.get("status") not in {"completed", "cancelled"}
+        ]
+        if len(active) == 1:
+            return sessions_dir / active[0]["file"]
+        if len(active) > 1:
+            names = ", ".join(r["file"] for r in active)
+            parser.error(
+                f"--session is required: multiple active sessions exist ({names})"
+            )
+    parser.error("--session is required for this command")
 
 
 # ---------------------------------------------------------------------------
@@ -411,7 +526,8 @@ def _cmd_sessions(args: argparse.Namespace, _parser: argparse.ArgumentParser) ->
     if not sessions_dir.exists():
         print("No .github/obo_sessions directory found.")
         return 0
-    rows = list_sessions(sessions_dir, status_filter=getattr(args, "status", None))
+    status_filter = "active" if getattr(args, "active", False) else getattr(args, "status", None)
+    rows = list_sessions(sessions_dir, status_filter=status_filter)
     _print_sessions_table(rows)
     return 0
 
@@ -419,7 +535,16 @@ def _cmd_sessions(args: argparse.Namespace, _parser: argparse.ArgumentParser) ->
 def _cmd_status(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     sf    = _require_session(args, parser)
     stats = session_status(sf)
-    _print_session_status(stats)
+    if getattr(args, "compact", False):
+        total     = stats.get("total", 0)
+        done      = stats.get("done", 0)
+        pct       = stats.get("pct_done", (100 * done // total) if total else 0)
+        in_prog   = stats.get("in_progress", 0)
+        pending   = stats.get("pending", 0)
+        blocked   = stats.get("blocked", 0)
+        print(f"{done}/{total} done ({pct}%) — {in_prog} in-progress, {pending} pending, {blocked} blocked")
+    else:
+        _print_session_status(stats)
     return 0
 
 
@@ -440,7 +565,7 @@ def _cmd_create(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
         else:
             sf = _get_sessions_dir(args.base_dir) / session_path.name
 
-    items = _read_items(args.input_file)
+    items = _resolve_items(args)
     try:
         session = create_session(
             sf,
@@ -458,7 +583,7 @@ def _cmd_create(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
 
 def _cmd_merge(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     sf    = _require_session(args, parser)
-    items = _read_items(args.input_file)
+    items = _resolve_items(args)
     try:
         result = merge_items(sf, items)
     except (ValueError, KeyError) as exc:
@@ -486,6 +611,56 @@ def _cmd_complete_session(args: argparse.Namespace, parser: argparse.ArgumentPar
     return 0
 
 
+def _cmd_cancel_session(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    sf     = _require_session(args, parser)
+    reason = " ".join(args.reason) if args.reason else ""
+    try:
+        session = cancel_session(sf, reason)
+    except (ValueError, OSError) as exc:
+        print(f"❌ {exc}", file=sys.stderr)
+        return 1
+    items = session.get("items", [])
+    open_n = sum(
+        1 for i in items if i.get("status") in {"pending", "in_progress", "deferred", "blocked"}
+    )
+    print(f"✓ Session marked cancelled: {sf.name}")
+    if reason:
+        print(f"  Reason: {reason}")
+    if open_n:
+        print(f"  Note: {open_n} item(s) left open")
+    return 0
+
+
+def _cmd_trim_sessions(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    sessions_dir = _get_sessions_dir(args.base_dir)
+    if not sessions_dir.exists():
+        print("No .github/obo_sessions directory found.")
+        return 0
+
+    trim_status = getattr(args, "trim_status", "completed")
+    status_arg  = None if trim_status == "any" else trim_status
+
+    try:
+        result = trim_sessions(
+            sessions_dir,
+            before=args.before,
+            status_filter=status_arg,
+            dry_run=args.dry_run,
+        )
+    except ValueError as exc:
+        print(f"❌ {exc}", file=sys.stderr)
+        return 1
+
+    prefix = "Would delete" if args.dry_run else "Deleted"
+    n = result["total_deleted"]
+    print(f"{'[DRY RUN] ' if args.dry_run else ''}{prefix} {n} session(s):")
+    for name in result["deleted"]:
+        print(f"  - {name}")
+    if result["total_retained"]:
+        print(f"Retained: {result['total_retained']} session(s)")
+    return 0
+
+
 def _cmd_list(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     sf    = _require_session(args, parser)
     items = list_items(sf, status_filter=getattr(args, "status", None))
@@ -500,6 +675,12 @@ def _cmd_next(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     except ValueError as exc:
         print(f"❌ {exc}", file=sys.stderr)
         return 1
+    if getattr(args, "mark_in_progress", False):
+        try:
+            mark_in_progress(sf, item["id"])
+        except (KeyError, ValueError) as exc:
+            print(f"❌ {exc}", file=sys.stderr)
+            return 1
     stats = session_status(sf)
     _print_next(item, stats)
     return 0
@@ -511,13 +692,17 @@ def _cmd_show(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     if item is None:
         print(f"❌ Item {args.item_id} not found", file=sys.stderr)
         return 1
+    fields_arg = getattr(args, "fields", None)
+    if fields_arg:
+        field_list = [f.strip() for f in fields_arg.split(",") if f.strip()]
+        item = {k: v for k, v in item.items() if k in field_list}
     _print_item_detail(item)
     return 0
 
 
 def _cmd_complete(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
-    sf         = _require_session(args, parser)
-    resolution = " ".join(args.resolution)
+    sf = _require_session(args, parser)
+    resolution = args.resolution
     try:
         session  = mark_complete(sf, args.item_id, resolution)
     except KeyError as exc:
@@ -581,7 +766,7 @@ def _cmd_approve(args: argparse.Namespace, parser: argparse.ArgumentParser) -> i
             args.item_id,
             args.approval_status,
             approval_mode=args.approval_mode,
-            note=args.note,
+            note=args.approval_note,
             lifecycle_status=args.lifecycle_status,
         )
     except (KeyError, ValueError) as exc:
@@ -614,15 +799,19 @@ def _cmd_update(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
 
 
 def _cmd_create_child(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
-    parent_sf   = _require_session(args, parser)
+    parent_sf    = _require_session(args, parser)
     sessions_dir = _get_sessions_dir(args.base_dir)
-    child_name  = Path(args.child_session).name
-    try:
-        validate_session_filename(child_name)
-    except ValueError as exc:
-        parser.error(str(exc))
-    child_sf = sessions_dir / child_name
-    items    = _read_items(args.input_file)
+    if args.child_session is None:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        child_sf = sessions_dir / f"session_{ts}.json"
+    else:
+        child_name = Path(args.child_session).name
+        try:
+            validate_session_filename(child_name)
+        except ValueError as exc:
+            parser.error(str(exc))
+        child_sf = sessions_dir / child_name
+    items    = _resolve_items(args)
     try:
         result = create_child_session(
             parent_sf,
@@ -643,12 +832,13 @@ def _cmd_create_child(args: argparse.Namespace, parser: argparse.ArgumentParser)
 
 
 def _cmd_complete_child(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
-    sf         = _require_session(args, parser)
-    resolution = " ".join(args.resolution) if args.resolution else ""
+    sf          = _require_session(args, parser)
+    resolution  = " ".join(args.resolution) if args.resolution else ""
+    disposition = getattr(args, "disposition", "completed")
     try:
-        result = complete_child_session(sf, resolution)
+        result = complete_child_session(sf, resolution, disposition=disposition)
     except ValueError as exc:
-        print(f"❌ {exc}", file=sys.stderr)
+        print(f"\u274c {exc}", file=sys.stderr)
         return 1
     parent = result["parent_session"]
     child  = result["child_session"]
@@ -656,7 +846,8 @@ def _cmd_complete_child(args: argparse.Namespace, parser: argparse.ArgumentParse
     total = len(parent_items)
     done = sum(1 for i in parent_items if i.get("status") in {"completed", "skipped"})
     pct_done = (done / total * 100.0) if total else 0.0
-    print(f"✓ Child session completed: {sf.name}")
+    verb = disposition  # "completed" or "cancelled"
+    print(f"\u2713 Child session {verb}: {sf.name}")
     print(f"✓ Parent session resumed: {child.get('parent_session_file', '')}")
     _print_session_status(
         {
@@ -697,6 +888,8 @@ _COMMAND_DISPATCH = {
     "update":          _cmd_update,
     "create-child":    _cmd_create_child,
     "complete-child":  _cmd_complete_child,
+    "cancel-session":  _cmd_cancel_session,
+    "trim-sessions":   _cmd_trim_sessions,
 }
 
 def main(argv: Sequence[str] | None = None) -> int:
