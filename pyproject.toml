@@ -1,6 +1,6 @@
 [project]
 name = "oboe-mcp"
-version = "0.1.2"
+version = "0.2.0"
 description = "MCP server for durable one-by-one review workflows, with prioritized session state for coding agents."
 readme = {file = "README.md", content-type = "text/markdown"}
 authors = [{name = "Gregory R. Warnes", email = "greg@warnes-innovations.com"}]
@@ -31,6 +31,7 @@ Changelog = "https://github.com/Warnes-Innovations/oboe-mcp/blob/main/CHANGELOG.
 
 [project.scripts]
 oboe-mcp = "oboe_mcp.server:main"
+oboe-cli = "oboe_mcp.cli:main"
 
 [build-system]
 requires = ["hatchling"]

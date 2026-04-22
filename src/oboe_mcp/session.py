@@ -44,6 +44,22 @@ def obo_sessions_dir(base_dir: str | Path) -> Path:
     return Path(base_dir).resolve() / ".github" / "obo_sessions"
 
 
+def resolve_base_dir(base_dir: str | Path | None = None) -> Path:
+    """Resolve the project base directory for CLI use.
+
+    Priority:
+      1. *base_dir* if supplied (converted to an absolute path)
+      2. CWD if it contains ``.github/obo_sessions/``
+      3. CWD as a fallback (directory may not yet exist)
+    """
+    if base_dir is not None:
+        return Path(base_dir).resolve()
+    cwd = Path.cwd()
+    if (cwd / ".github" / "obo_sessions").exists():
+        return cwd
+    return cwd
+
+
 def validate_session_filename(session_filename: str) -> str:
     """Validate the documented session filename convention."""
     if not _SESSION_RE.fullmatch(session_filename):

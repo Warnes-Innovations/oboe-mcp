@@ -16,6 +16,21 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-04-11
+
+### Added
+
+- `oboe-cli` command-line tool installed alongside `oboe-mcp`, providing a human-friendly CLI for the same session files the MCP tools operate on.
+- 16 `oboe-cli` subcommands: `sessions`, `status`, `create`, `merge`, `complete-session`, `list`, `next`, `show`, `complete`, `skip`, `in-progress`, `block`, `approve`, `update`, `create-child`, `complete-child`.
+- `resolve_base_dir()` in `session.py` for auto-detecting the project root from the current working directory.
+- 77 unit tests for `oboe-cli` covering all commands and error paths.
+- CLI reference section in README with command table, global options, and quick-start examples.
+- `obo_helper.py` replaced with a thin deprecation shim that delegates to `oboe-cli`.
+
+### Changed
+
+- `install.sh` now mentions `oboe-cli` in both the plan and completion summary.
+
 ## [0.1.2] - 2026-04-08
 
 ### Added
