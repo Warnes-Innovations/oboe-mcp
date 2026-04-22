@@ -56,13 +56,13 @@ def _run(*args: str, expect_rc: int = 0) -> tuple[str, str]:
 
 @pytest.fixture(name="base_dir")
 def fixture_base_dir(tmp_path):
-    (tmp_path / ".github" / "obo_sessions").mkdir(parents=True)
+    (tmp_path / ".github" / "oboe_sessions").mkdir(parents=True)
     return tmp_path
 
 
 @pytest.fixture(name="sessions_dir")
 def fixture_sessions_dir(base_dir):
-    return base_dir / ".github" / "obo_sessions"
+    return base_dir / ".github" / "oboe_sessions"
 
 
 @pytest.fixture(name="sample_items")
@@ -148,7 +148,7 @@ def test_create_auto_generates_filename(base_dir, items_file):
     out, _ = _run("--base-dir", str(base_dir), "create",
                   "--title", "Auto", "--input-file", str(items_file))
     assert "Session created" in out
-    sessions_dir = base_dir / ".github" / "obo_sessions"
+    sessions_dir = base_dir / ".github" / "oboe_sessions"
     sf_files = list(sessions_dir.glob("session_*.json"))
     assert len(sf_files) == 1
 
@@ -159,7 +159,7 @@ def test_create_with_explicit_session(base_dir, items_file):
                   "--session", sf_name,
                   "create", "--title", "Explicit", "--input-file", str(items_file))
     assert "Session created" in out
-    assert (base_dir / ".github" / "obo_sessions" / sf_name).exists()
+    assert (base_dir / ".github" / "oboe_sessions" / sf_name).exists()
 
 
 def test_create_reports_item_count(base_dir, items_file):
@@ -805,7 +805,7 @@ def test_auto_infer_session_fails_when_multiple_active(base_dir, sessions_dir, s
 # ---------------------------------------------------------------------------
 
 def test_resolve_base_dir_uses_cwd_when_obo_sessions_exists(tmp_path, monkeypatch):
-    (tmp_path / ".github" / "obo_sessions").mkdir(parents=True)
+    (tmp_path / ".github" / "oboe_sessions").mkdir(parents=True)
     monkeypatch.chdir(tmp_path)
     from oboe_mcp.session import resolve_base_dir
     result = resolve_base_dir()

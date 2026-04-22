@@ -25,7 +25,7 @@ from oboe_mcp.session import (
     mark_in_progress,
     mark_skip,
     merge_items,
-    obo_sessions_dir,
+    oboe_sessions_dir,
     resolve_session_file,
     set_approval,
     session_status,
@@ -43,7 +43,7 @@ from oboe_mcp.session import (
 
 @pytest.fixture(name="sessions_dir")
 def fixture_sessions_dir(tmp_path):
-    d = tmp_path / ".github" / "obo_sessions"
+    d = tmp_path / ".github" / "oboe_sessions"
     d.mkdir(parents=True)
     return d
 
@@ -602,7 +602,7 @@ def test_list_sessions_reads_index(sessions_dir, session_file):
 
 
 def test_list_sessions_fallback_no_index(tmp_path):
-    d = tmp_path / ".github" / "obo_sessions"
+    d = tmp_path / ".github" / "oboe_sessions"
     d.mkdir(parents=True)
     # Write session file directly without creating index
     sf = d / "session_20260314_190000.json"
@@ -836,12 +836,12 @@ def test_complete_child_session_cancelled_stores_reason_on_child(
 
 
 # ---------------------------------------------------------------------------
-# obo_sessions_dir / resolve_session_file
+# oboe_sessions_dir / resolve_session_file
 # ---------------------------------------------------------------------------
 
-def test_obo_sessions_dir(tmp_path):
-    result = obo_sessions_dir(tmp_path)
-    assert result == tmp_path / ".github" / "obo_sessions"
+def test_oboe_sessions_dir(tmp_path):
+    result = oboe_sessions_dir(tmp_path)
+    assert result == tmp_path / ".github" / "oboe_sessions"
 
 
 def test_resolve_session_file_absolute(tmp_path):
@@ -859,7 +859,7 @@ def test_resolve_session_file_relative_with_base(tmp_path):
     expected = (
         tmp_path
         / ".github"
-        / "obo_sessions"
+        / "oboe_sessions"
         / "session_20260314_120000.json"
     ).resolve()
     assert result == expected

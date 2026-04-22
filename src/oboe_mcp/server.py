@@ -38,7 +38,7 @@ from oboe_mcp.session import (
     mark_in_progress as mark_in_progress_fn,
     mark_skip,
     merge_items,
-    obo_sessions_dir,
+    oboe_sessions_dir,
     set_approval,
     session_status,
     trim_sessions,
@@ -104,18 +104,18 @@ def _resolve(session_file: str, base_dir: str | None = None) -> Path:
         return p
     if base_dir:
         _validate_base_dir(base_dir)
-        return obo_sessions_dir(base_dir) / session_file
+        return oboe_sessions_dir(base_dir) / session_file
     raise ValueError(
         "session_file must be an absolute path or base_dir must be provided"
     )
 
 
 # ---------------------------------------------------------------------------
-# Tool: obo_create
+# Tool: oboe_create
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def obo_create(
+def oboe_create(
     base_dir: str,
     title: str,
     description: str,
@@ -130,7 +130,7 @@ def obo_create(
         description: What this session is reviewing
         items: List of item dicts. All priority fields are optional.
                If omitted, the session is created with no items (items can
-               be added later with obo_merge_items).
+               be added later with oboe_merge_items).
         session_file: Optional explicit filename.
                       If omitted, generated from current timestamp.
     """
@@ -138,7 +138,7 @@ def obo_create(
         _validate_base_dir(base_dir)
     except ValueError as e:
         return f"ERROR: {e}"
-    sessions_dir = obo_sessions_dir(base_dir)
+    sessions_dir = oboe_sessions_dir(base_dir)
     try:
         if session_file:
             validate_session_filename(session_file)
@@ -166,11 +166,11 @@ def obo_create(
 
 
 # ---------------------------------------------------------------------------
-# Tool: obo_list_sessions
+# Tool: oboe_list_sessions
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def obo_list_sessions(
+def oboe_list_sessions(
     base_dir: str,
     status_filter: Optional[str] = None,
 ) -> str:
@@ -181,17 +181,17 @@ def obo_list_sessions(
         status_filter: Optional filter — 'active', 'paused', 'completed',
                        'cancelled', or 'incomplete' (incomplete = active or
                        paused sessions with open items).  Vocabulary note:
-                       'incomplete' is specific to this tool; obo_trim_sessions
+                       'incomplete' is specific to this tool; oboe_trim_sessions
                        uses 'any' (not 'incomplete') to mean all statuses.
     """
     try:
         _validate_base_dir(base_dir)
     except ValueError as e:
         return f"ERROR: {e}"
-    sessions_dir = obo_sessions_dir(base_dir)
+    sessions_dir = oboe_sessions_dir(base_dir)
     if not sessions_dir.exists():
         return json.dumps(
-            {"sessions": [], "message": "No obo_sessions directory found"}
+            {"sessions": [], "message": "No oboe_sessions directory found"}
         )
 
     rows = list_sessions(sessions_dir, status_filter=status_filter)
@@ -199,11 +199,11 @@ def obo_list_sessions(
 
 
 # ---------------------------------------------------------------------------
-# Tool: obo_session_status
+# Tool: oboe_session_status
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def obo_session_status(
+def oboe_session_status(
     session_file: str,
     base_dir: Optional[str] = None,
 ) -> str:
@@ -222,17 +222,17 @@ def obo_session_status(
 
 
 # ---------------------------------------------------------------------------
-# Tool: obo_get_session
+# Tool: oboe_get_session
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def obo_get_session(
+def oboe_get_session(
     session_file: str,
     base_dir: Optional[str] = None,
 ) -> str:
     """Return header metadata for a session (title, description, dates, relationships).
 
-    Unlike obo_session_status (which returns item counts), this returns the
+    Unlike oboe_session_status (which returns item counts), this returns the
     full session header: title, description, created, status,
     parent_session_file, parent_item_id, child_session_files, and
     active_child_session.
@@ -264,11 +264,11 @@ def obo_get_session(
 
 
 # ---------------------------------------------------------------------------
-# Tool: obo_next
+# Tool: oboe_next
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def obo_next(
+def oboe_next(
     session_file: str,
     base_dir: Optional[str] = None,
     mark_in_progress: bool = False,
@@ -282,7 +282,7 @@ def obo_next(
         base_dir: Required if session_file is a bare filename
         mark_in_progress: If True, atomically mark the returned item as
                           in_progress before returning it.  Eliminates a
-                          separate obo_mark_in_progress call.
+                          separate oboe_mark_in_progress call.
     """
     try:
         sf = _resolve(session_file, base_dir)
@@ -298,11 +298,11 @@ def obo_next(
                     "message": (
                         "This session is paused while a child session is active. "
                         "Work through the child session items, then call "
-                        "obo_complete_child_session to resume this parent session."
+                        "oboe_complete_child_session to resume this parent session."
                     ),
                     "active_child_session": child_name,
                     "action_required": (
-                        f"Call obo_next with session_file='{child_name}' "
+                        f"Call oboe_next with session_file='{child_name}' "
                         "to continue work on the child session."
                     ),
                 }, indent=2)
@@ -318,7 +318,7 @@ def obo_next(
                     "blocked": stats.get("blocked", 0),
                     "active_child_session": stats.get("active_child_session"),
                     "action_required": (
-                        "Call obo_list_items with status_filter='blocked' "
+                        "Call oboe_list_items with status_filter='blocked' "
                         "to review and resolve blockers."
                     ),
                 }, indent=2)
@@ -344,11 +344,11 @@ def obo_next(
 
 
 # ---------------------------------------------------------------------------
-# Tool: obo_list_items
+# Tool: oboe_list_items
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def obo_list_items(
+def oboe_list_items(
     session_file: str,
     base_dir: Optional[str] = None,
     status_filter: Optional[str] = None,
@@ -369,11 +369,11 @@ def obo_list_items(
 
 
 # ---------------------------------------------------------------------------
-# Tool: obo_get_item
+# Tool: oboe_get_item
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def obo_get_item(
+def oboe_get_item(
     session_file: str,
     item_id: str,
     base_dir: Optional[str] = None,
@@ -396,11 +396,11 @@ def obo_get_item(
 
 
 # ---------------------------------------------------------------------------
-# Tool: obo_mark_complete
+# Tool: oboe_mark_complete
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def obo_mark_complete(
+def oboe_mark_complete(
     session_file: str,
     item_id: str,
     resolution: str,
@@ -439,11 +439,11 @@ def obo_mark_complete(
 
 
 # ---------------------------------------------------------------------------
-# Tool: obo_mark_skip
+# Tool: oboe_mark_skip
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def obo_mark_skip(
+def oboe_mark_skip(
     session_file: str,
     item_id: str,
     base_dir: Optional[str] = None,
@@ -476,11 +476,11 @@ def obo_mark_skip(
 
 
 # ---------------------------------------------------------------------------
-# Tool: obo_mark_deferred
+# Tool: oboe_mark_deferred
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def obo_mark_deferred(
+def oboe_mark_deferred(
     session_file: str,
     item_id: str,
     base_dir: Optional[str] = None,
@@ -513,11 +513,11 @@ def obo_mark_deferred(
 
 
 # ---------------------------------------------------------------------------
-# Tool: obo_mark_blocked
+# Tool: oboe_mark_blocked
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def obo_mark_blocked(
+def oboe_mark_blocked(
     session_file: str,
     item_id: str,
     blocker: str,
@@ -552,11 +552,11 @@ def obo_mark_blocked(
 
 
 # ---------------------------------------------------------------------------
-# Tool: obo_set_approval
+# Tool: oboe_set_approval
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def obo_set_approval(
+def oboe_set_approval(
     session_file: str,
     item_id: str,
     approval_status: str,
@@ -603,12 +603,12 @@ def obo_set_approval(
 
 
 # ---------------------------------------------------------------------------
-# Tool: obo_update_field
+# Tool: oboe_update_field
 # ---------------------------------------------------------------------------
 
 
 @mcp.tool()
-def obo_mark_in_progress(
+def oboe_mark_in_progress(
     session_file: str,
     item_id: str,
     base_dir: Optional[str] = None,
@@ -641,7 +641,7 @@ def obo_mark_in_progress(
 
 
 @mcp.tool()
-def obo_complete_session(
+def oboe_complete_session(
     session_file: str,
     base_dir: Optional[str] = None,
 ) -> str:
@@ -674,7 +674,7 @@ def obo_complete_session(
 
 
 @mcp.tool()
-def obo_create_child_session(
+def oboe_create_child_session(
     parent_session_file: str,
     title: str,
     description: str,
@@ -690,7 +690,7 @@ def obo_create_child_session(
         title: Human-readable child session title
         description: What the child session is reviewing
         items: Child session items. If omitted, the child session is created
-               with no items (items can be added later with obo_merge_items).
+               with no items (items can be added later with oboe_merge_items).
         base_dir: Required if session paths are bare filenames
         parent_item_id: Optional parent item to block while child is active
         session_file: Optional explicit child session filename
@@ -731,7 +731,7 @@ def obo_create_child_session(
 
 
 @mcp.tool()
-def obo_complete_child_session(
+def oboe_complete_child_session(
     child_session_file: str,
     base_dir: Optional[str] = None,
     resolution: str = "",
@@ -770,7 +770,7 @@ def obo_complete_child_session(
 
 
 @mcp.tool()
-def obo_merge_items(
+def oboe_merge_items(
     session_file: str,
     items: list[dict],
     base_dir: Optional[str] = None,
@@ -802,7 +802,7 @@ def obo_merge_items(
 
 
 @mcp.tool()
-def obo_update_field(
+def oboe_update_field(
     session_file: str,
     item_id: str,
     field: str,
@@ -839,7 +839,7 @@ def obo_update_field(
 
 
 @mcp.tool()
-def obo_cancel_session(
+def oboe_cancel_session(
     session_file: str,
     base_dir: Optional[str] = None,
     cancel_reason: str = "",
@@ -869,7 +869,7 @@ def obo_cancel_session(
 
 
 @mcp.tool()
-def obo_trim_sessions(
+def oboe_trim_sessions(
     base_dir: str,
     before: Optional[str] = None,
     status_filter: str = "completed",
@@ -879,20 +879,20 @@ def obo_trim_sessions(
 
     Args:
         base_dir: Project root directory (sessions live in
-                  .github/obo_sessions/ under this path)
+                  .github/oboe_sessions/ under this path)
         before: ISO-8601 datetime string, or 'now' to delete all matching
                 sessions. Sessions created before this timestamp are deleted.
                 Omit to match any age.
         status_filter: 'completed', 'cancelled', 'active', 'paused', or
                        'any' (no status restriction).  Default: 'completed'.
                        Vocabulary note: use 'any' here for "all statuses";
-                       the term 'incomplete' used by obo_list_sessions is
+                       the term 'incomplete' used by oboe_list_sessions is
                        not accepted here to prevent accidental deletion of
                        active sessions.
         dry_run: If true, report what would be deleted without deleting.
     """
     try:
-        sessions_dir = obo_sessions_dir(Path(base_dir))
+        sessions_dir = oboe_sessions_dir(Path(base_dir))
         sf = None if status_filter == "any" else status_filter
         result = trim_sessions(
             sessions_dir,

@@ -36,7 +36,7 @@ from oboe_mcp.session import (
     mark_in_progress,
     mark_skip,
     merge_items,
-    obo_sessions_dir,
+    oboe_sessions_dir,
     resolve_base_dir,
     resolve_session_file,
     session_status,
@@ -195,8 +195,8 @@ def _print_session_status(stats: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def _get_sessions_dir(base_dir: str | None) -> Path:
-    """Resolve .github/obo_sessions using base_dir or CWD detection."""
-    return obo_sessions_dir(resolve_base_dir(base_dir))
+    """Resolve .github/oboe_sessions using base_dir or CWD detection."""
+    return oboe_sessions_dir(resolve_base_dir(base_dir))
 
 
 def _get_session_file(session: str, base_dir: str | None) -> Path:
@@ -216,7 +216,7 @@ def _build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Session directory resolution (--base-dir omitted):\n"
-            "  1. CWD if it contains .github/obo_sessions/\n"
+            "  1. CWD if it contains .github/oboe_sessions/\n"
             "  2. CWD as fallback\n"
         ),
     )
@@ -233,7 +233,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--base-dir", "-b",
         metavar="DIR",
         default=None,
-        help="Project root for .github/obo_sessions/ (overrides CWD detection)",
+        help="Project root for .github/oboe_sessions/ (overrides CWD detection)",
     )
 
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
@@ -524,7 +524,7 @@ def _require_session(args: argparse.Namespace, parser: argparse.ArgumentParser) 
 def _cmd_sessions(args: argparse.Namespace, _parser: argparse.ArgumentParser) -> int:
     sessions_dir = _get_sessions_dir(args.base_dir)
     if not sessions_dir.exists():
-        print("No .github/obo_sessions directory found.")
+        print("No .github/oboe_sessions directory found.")
         return 0
     status_filter = "active" if getattr(args, "active", False) else getattr(args, "status", None)
     rows = list_sessions(sessions_dir, status_filter=status_filter)
@@ -634,7 +634,7 @@ def _cmd_cancel_session(args: argparse.Namespace, parser: argparse.ArgumentParse
 def _cmd_trim_sessions(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     sessions_dir = _get_sessions_dir(args.base_dir)
     if not sessions_dir.exists():
-        print("No .github/obo_sessions directory found.")
+        print("No .github/oboe_sessions directory found.")
         return 0
 
     trim_status = getattr(args, "trim_status", "completed")

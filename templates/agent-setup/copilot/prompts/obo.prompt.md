@@ -19,28 +19,28 @@ For every OBO decision that offers predefined choices, use the agent's structure
 
 Follow this workflow:
 
-1. Call `obo_list_sessions` for the current workspace before extracting new items.
+1. Call `oboe_list_sessions` for the current workspace before extracting new items.
 2. If an incomplete session exists, ask whether to resume, merge, defer, replace, or stop.
 3. If creating a new session, extract discrete items from the current context.
 4. Assign priority factors for each item using urgency, importance, effort, and dependencies.
-5. Call `obo_create` to persist the session. `items` is optional — if items are not yet known at session creation time, omit them and populate the session later with `obo_merge_items`.
-6. If adding to an existing session, call `obo_merge_items`.
+5. Call `oboe_create` to persist the session. `items` is optional — if items are not yet known at session creation time, omit them and populate the session later with `oboe_merge_items`.
+6. If adding to an existing session, call `oboe_merge_items`.
 7. Present an executive summary before reviewing individual items. Include scope, item count, highest-impact items, important dependencies, and proposed order.
-8. Use `obo_next` to choose the next actionable item.
-9. Use `obo_mark_in_progress` when work begins on an item.
-10. If an item cannot proceed, call `obo_mark_blocked` and store blocker details instead of losing the stalled state in chat.
-11. If a sub-problem needs its own queue, call `obo_create_child_session`, finish the child workflow, then call `obo_complete_child_session` to resume the parent.
+8. Use `oboe_next` to choose the next actionable item.
+9. Use `oboe_mark_in_progress` when work begins on an item.
+10. If an item cannot proceed, call `oboe_mark_blocked` and store blocker details instead of losing the stalled state in chat.
+11. If a sub-problem needs its own queue, call `oboe_create_child_session`, finish the child workflow, then call `oboe_complete_child_session` to resume the parent.
 12. Treat item state as two axes: lifecycle (`pending`, `in_progress`, `deferred`, `blocked`, `completed`, `skipped`) and approval (`unreviewed`, `approved`, `denied`).
-13. Use `obo_set_approval` for approval metadata such as `approval_status`, `approval_mode`, and `approval_note`.
-14. Approve Immediate means `obo_set_approval(..., approval_status="approved", approval_mode="immediate")`; Approve Delayed means `obo_set_approval(..., approval_status="approved", approval_mode="delayed")`.
-15. After user approval or denial, use `obo_mark_complete` or `obo_mark_skip`.
-16. Use `obo_session_status` to report progress after each decision.
-17. When no open items remain, call `obo_complete_session`.
+13. Use `oboe_set_approval` for approval metadata such as `approval_status`, `approval_mode`, and `approval_note`.
+14. Approve Immediate means `oboe_set_approval(..., approval_status="approved", approval_mode="immediate")`; Approve Delayed means `oboe_set_approval(..., approval_status="approved", approval_mode="delayed")`.
+15. After user approval or denial, use `oboe_mark_complete` or `oboe_mark_skip`.
+16. Use `oboe_session_status` to report progress after each decision.
+17. When no open items remain, call `oboe_complete_session`.
 
 Rules:
 
-- Never directly edit `.github/obo_sessions/*.json` or `index.json`.
-- Never synthesize session state from manual file writes when an `obo_*` tool exists.
+- Never directly edit `.github/oboe_sessions/*.json` or `index.json`.
+- Never synthesize session state from manual file writes when an `oboe_*` tool exists.
 - Use the structured question tool by default for resume, merge, defer, replace, stop, approval, reorder, restore, and other predefined OBO menus.
 - Only fall back to plain text when the structured question tool is unavailable, failing, or the user response truly must be open-ended; say why before using the fallback.
 - Prefer OBO for multi-item workflows that need resumable queue state; prefer normal chat for one-off tasks.

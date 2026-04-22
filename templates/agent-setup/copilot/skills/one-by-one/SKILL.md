@@ -23,7 +23,7 @@ Process multiple items sequentially with priority scoring, dependency analysis, 
 
 ## Session Management
 
-Prefer the `oboe-mcp` MCP tools for `.github/obo_sessions/` state.
+Prefer the `oboe-mcp` MCP tools for `.github/oboe_sessions/` state.
 Do not read or write session JSON directly when the MCP tools can perform the operation.
 If `oboe-mcp` is unavailable, stop and surface the blocker instead of silently falling back.
 
@@ -31,20 +31,20 @@ If `oboe-mcp` is unavailable, stop and surface the blocker instead of silently f
 
 | Operation | How |
 |-----------|-----|
-| List existing sessions | `obo_list_sessions(base_dir, status_filter?)` |
-| Create new session | `obo_create(base_dir, title, description, items?=[...])` |
-| Merge into session | `obo_merge_items(session_file, items=[...], base_dir?)` |
-| Mark item blocked | `obo_mark_blocked(session_file, item_id, blocker, base_dir?)` |
-| Mark item complete | `obo_mark_complete(session_file, item_id, resolution, base_dir?)` |
-| Skip item | `obo_mark_skip(session_file, item_id, base_dir?, reason?)` |
-| Mark item in progress | `obo_mark_in_progress(session_file, item_id, base_dir?)` |
-| Set approval | `obo_set_approval(session_file, item_id, approval_status, base_dir?, approval_mode?, note?, lifecycle_status?)` |
-| Create child session | `obo_create_child_session(parent_session_file, title, description, items?=[...], base_dir?, parent_item_id?, session_filename?)` |
-| Complete child session | `obo_complete_child_session(child_session_file, base_dir?, resolution?)` |
-| Update a field | `obo_update_field(session_file, item_id, field, value, base_dir?)` |
-| Find next item | `obo_next(session_file, base_dir?)` |
-| Session status | `obo_session_status(session_file, base_dir?)` |
-| Complete session | `obo_complete_session(session_file, base_dir?)` |
+| List existing sessions | `oboe_list_sessions(base_dir, status_filter?)` |
+| Create new session | `oboe_create(base_dir, title, description, items?=[...])` |
+| Merge into session | `oboe_merge_items(session_file, items=[...], base_dir?)` |
+| Mark item blocked | `oboe_mark_blocked(session_file, item_id, blocker, base_dir?)` |
+| Mark item complete | `oboe_mark_complete(session_file, item_id, resolution, base_dir?)` |
+| Skip item | `oboe_mark_skip(session_file, item_id, base_dir?, reason?)` |
+| Mark item in progress | `oboe_mark_in_progress(session_file, item_id, base_dir?)` |
+| Set approval | `oboe_set_approval(session_file, item_id, approval_status, base_dir?, approval_mode?, note?, lifecycle_status?)` |
+| Create child session | `oboe_create_child_session(parent_session_file, title, description, items?=[...], base_dir?, parent_item_id?, session_filename?)` |
+| Complete child session | `oboe_complete_child_session(child_session_file, base_dir?, resolution?)` |
+| Update a field | `oboe_update_field(session_file, item_id, field, value, base_dir?)` |
+| Find next item | `oboe_next(session_file, base_dir?)` |
+| Session status | `oboe_session_status(session_file, base_dir?)` |
+| Complete session | `oboe_complete_session(session_file, base_dir?)` |
 
 ## Priority Score Formula
 
@@ -87,13 +87,13 @@ Definitions:
 1. Check for incomplete sessions first.
 2. Offer resume, merge, replace, or stop with the structured question tool whenever predefined options are available.
 3. Extract items and assign priority factors.
-4. Persist the session with `obo_create` or `obo_merge_items`. `items` is optional in `obo_create` and `obo_create_child_session`; if items are not yet known, create the session first and populate it later with `obo_merge_items`.
+4. Persist the session with `oboe_create` or `oboe_merge_items`. `items` is optional in `oboe_create` and `oboe_create_child_session`; if items are not yet known, create the session first and populate it later with `oboe_merge_items`.
 5. Present an executive summary for the full list, including major dependencies and proposed order.
 6. Present one item at a time.
 7. Mark items `blocked` when progress cannot continue and store the blocker.
 8. Create a child session when a sub-problem needs its own sequential queue.
-9. Use `obo_set_approval` for approval metadata such as `approval_status`, `approval_mode`, and `approval_note`.
-10. Treat Approve Delayed as a single `obo_set_approval` call with `approval_status=approved` and `approval_mode=delayed`.
+9. Use `oboe_set_approval` for approval metadata such as `approval_status`, `approval_mode`, and `approval_note`.
+10. Treat Approve Delayed as a single `oboe_set_approval` call with `approval_status=approved` and `approval_mode=delayed`.
 11. Do not advance until the user explicitly approves, denies, skips, blocks, or asks to continue.
 
 Use the agent's structured question tool (`askQuestions`, `ask_questions`, `AskUserQuestion`, or equivalent) by default for predefined OBO choices such as resume, merge, replace, approval, navigation, stop, restore, and reorder. Only fall back to plain text when the structured question tool is unavailable, failing, or the prompt genuinely requires unrestricted freeform input; when that happens, state the reason explicitly.

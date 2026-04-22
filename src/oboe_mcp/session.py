@@ -5,11 +5,11 @@
 # For commercial licensing, contact greg@warnes-innovations.com
 
 """
-OBO Session business logic — ported from obo_helper.py.
+OBO Session business logic — ported from oboe_helper.py.
 
 All public functions operate on Path objects or string paths.
 session_file parameters accept an absolute path or a filename
-relative to {base_dir}/.github/obo_sessions/.
+relative to {base_dir}/.github/oboe_sessions/.
 """
 
 import json
@@ -40,9 +40,9 @@ _VALID_SESSION_STATUSES = {"active", "paused", "completed", "cancelled"}
 # Path helpers
 # ---------------------------------------------------------------------------
 
-def obo_sessions_dir(base_dir: str | Path) -> Path:
-    """Return the .github/obo_sessions directory for a given base dir."""
-    return Path(base_dir).resolve() / ".github" / "obo_sessions"
+def oboe_sessions_dir(base_dir: str | Path) -> Path:
+    """Return the .github/oboe_sessions directory for a given base dir."""
+    return Path(base_dir).resolve() / ".github" / "oboe_sessions"
 
 
 def resolve_base_dir(base_dir: str | Path | None = None) -> Path:
@@ -50,13 +50,13 @@ def resolve_base_dir(base_dir: str | Path | None = None) -> Path:
 
     Priority:
       1. *base_dir* if supplied (converted to an absolute path)
-      2. CWD if it contains ``.github/obo_sessions/``
+      2. CWD if it contains ``.github/oboe_sessions/``
       3. CWD as a fallback (directory may not yet exist)
     """
     if base_dir is not None:
         return Path(base_dir).resolve()
     cwd = Path.cwd()
-    if (cwd / ".github" / "obo_sessions").exists():
+    if (cwd / ".github" / "oboe_sessions").exists():
         return cwd
     return cwd
 
@@ -79,13 +79,13 @@ def resolve_session_file(
 
     Accepts:
     - An absolute path (returned as-is after resolving)
-    - A bare filename → resolved relative to base_dir/.github/obo_sessions/
+    - A bare filename → resolved relative to base_dir/.github/oboe_sessions/
     """
     p = Path(session_file)
     if p.is_absolute():
         return p.resolve()
     if base_dir is not None:
-        return (obo_sessions_dir(base_dir) / p).resolve()
+        return (oboe_sessions_dir(base_dir) / p).resolve()
     # Caller must pass an absolute path if base_dir is None
     raise ValueError(
         f"session_file '{session_file}' is relative but no base_dir "
@@ -758,7 +758,7 @@ def trim_sessions(
     """Delete session files matching *status_filter* and/or created before *before*.
 
     Args:
-        sessions_dir: The ``.github/obo_sessions`` directory.
+        sessions_dir: The ``.github/oboe_sessions`` directory.
         before: Delete sessions created before this datetime.  Accepts a
             ``datetime`` object or an ISO-8601 string.  Pass ``datetime.now()``
             (or ``"now"``) to delete all sessions matching the status filter.

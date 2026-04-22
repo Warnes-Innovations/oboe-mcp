@@ -26,16 +26,16 @@ For commercial licensing, contact greg@warnes-innovations.com
 
 ## Paths And Filenames
 
-- Session root directory: `{base_dir}/.github/obo_sessions/`
-- Session index file: `{base_dir}/.github/obo_sessions/index.json`
+- Session root directory: `{base_dir}/.github/oboe_sessions/`
+- Session index file: `{base_dir}/.github/oboe_sessions/index.json`
 - Session file pattern: `session_YYYYMMDD_HHMMSS.json`
 - Session filename validation regex: `^session_\d{8}_\d{6}\.json$`
 
 Path resolution rules:
 
 - Public APIs may accept either an absolute session file path or a bare filename.
-- A bare filename is resolved relative to `{base_dir}/.github/obo_sessions/`.
-- New sessions created through `obo_create` and child sessions created through `obo_create_child_session` must follow the filename convention above.
+- A bare filename is resolved relative to `{base_dir}/.github/oboe_sessions/`.
+- New sessions created through `oboe_create` and child sessions created through `oboe_create_child_session` must follow the filename convention above.
 
 ## Directory Layout
 
@@ -44,7 +44,7 @@ Typical layout:
 ```text
 {base_dir}/
   .github/
-    obo_sessions/
+    oboe_sessions/
       index.json
       session_20260323_191200.json
       session_20260323_193000.json
@@ -97,8 +97,8 @@ Each entry in `items` is a JSON object with these fields.
 | `effort` | integer | yes | Priority input, default `3`. |
 | `dependencies` | integer | yes | Priority input, default `1`. |
 | `priority_score` | integer | yes | Derived score computed from the priority inputs. |
-| `resolution` | string or null | yes | Completion text set by `obo_mark_complete`, otherwise `null`. |
-| `skip_reason` | string or null | yes | Skip reason set by `obo_mark_skip`, otherwise `null`. |
+| `resolution` | string or null | yes | Completion text set by `oboe_mark_complete`, otherwise `null`. |
+| `skip_reason` | string or null | yes | Skip reason set by `oboe_mark_skip`, otherwise `null`. |
 | `blocker` | object or null | yes | Structured blocker payload when an item is blocked, otherwise `null`. |
 | `blocked_at` | string or null | yes | ISO 8601 timestamp recorded when an item becomes blocked, otherwise `null`. |
 | `approval_status` | string | yes | Approval status: `unreviewed`, `approved`, or `denied`. Defaults to `unreviewed`. |
@@ -161,12 +161,12 @@ $$
 
 Sorting rules used by the session helpers:
 
-- `obo_next` prefers `in_progress` items first.
+- `oboe_next` prefers `in_progress` items first.
 - It then falls back to `pending` items.
 - If no immediate review items remain, it falls back to `deferred` items.
 - Within the same status bucket, higher `priority_score` sorts first.
 - For ties, lower `id` sorts first.
-- `obo_list_items` sorts all items by descending `priority_score`, then ascending `id`.
+- `oboe_list_items` sorts all items by descending `priority_score`, then ascending `id`.
 
 ## Index File Schema
 
