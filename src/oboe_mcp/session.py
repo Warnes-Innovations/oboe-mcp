@@ -40,8 +40,13 @@ _SESSION_RE = re.compile(r"^session_\d{8}_\d{6}\.json$")
 # ---------------------------------------------------------------------------
 
 def obo_sessions_dir(base_dir: str | Path) -> Path:
-    """Return the .github/obo_sessions directory for a given base dir."""
-    return Path(base_dir).resolve() / ".github" / "obo_sessions"
+    """Return the .github/obo_sessions directory for a given base dir.
+    If base_dir already ends with .github/obo_sessions, return as-is.
+    """
+    p = Path(base_dir).resolve()
+    if p.name == "obo_sessions" and p.parent.name == ".github":
+        return p
+    return p / ".github" / "obo_sessions"
 
 
 def resolve_base_dir(base_dir: str | Path | None = None) -> Path:
