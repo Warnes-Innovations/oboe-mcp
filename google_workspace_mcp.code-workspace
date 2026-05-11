@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "../google_workspace_mcp"
+		},
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"specstory.cloudSync.enabled": "never"
+	}
+}
