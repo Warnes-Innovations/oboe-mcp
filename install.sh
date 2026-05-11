@@ -21,6 +21,7 @@ SELECTED_TOOLS=()
 INSTALL_SCOPE=""
 PROJECT_DIR=""
 UPDATED_PATHS=()
+DEV_MODE=false
 
 print_header() {
     echo -e "${BLUE}oboe-mcp installer${NC}"
@@ -166,18 +167,26 @@ PY
 
 merge_vscode_mcp_server() {
     local target_path="$1"
+    local real_path
     local temp_output
 
-    ensure_dir "$(dirname "$target_path")"
+    # Resolve symlink so we write to the real file and don't replace the symlink
+    real_path="$(python3 -c "import os,sys; p=sys.argv[1]; print(os.path.realpath(p))" "$target_path" 2>/dev/null || echo "")"
+    if [[ -z "$real_path" ]]; then
+        real_path="$target_path"
+    fi
+
+    ensure_dir "$(dirname "$real_path")"
     temp_output="$(mktemp)"
 
-    python3 - "$target_path" "$REPO_SOURCE" > "$temp_output" <<'PY'
+    python3 - "$real_path" "$REPO_SOURCE" "$DEV_MODE" > "$temp_output" <<'PY'
 import json
 from pathlib import Path
 import sys
 
 target_path = Path(sys.argv[1])
 repo_source = sys.argv[2]
+dev_mode = sys.argv[3] == "true"
 if target_path.exists():
     data = json.loads(target_path.read_text())
 else:
@@ -185,33 +194,39 @@ else:
 servers = data.get("servers")
 if not isinstance(servers, dict):
     servers = {}
-servers["oboe-mcp"] = {
-    "type": "stdio",
-    "command": "uvx",
-    "args": ["--from", repo_source, "oboe-mcp"],
-}
+if dev_mode:
+    servers["oboe-mcp"] = {
+        "type": "stdio",
+        "command": "uv",
+        "args": ["run", "--directory", repo_source, "oboe-mcp"],
+    }
+else:
+    servers["oboe-mcp"] = {
+        "type": "stdio",
+        "command": "uvx",
+        "args": ["--from", "git+https://github.com/warnes-innovations/oboe-mcp", "oboe-mcp"],
+    }
 data["servers"] = servers
 if "inputs" not in data or not isinstance(data["inputs"], list):
     data["inputs"] = []
 sys.stdout.write(json.dumps(data, indent=2) + "\n")
 PY
 
-    if [ -f "$target_path" ] && cmp -s "$temp_output" "$target_path"; then
+    if [ -f "$real_path" ] && cmp -s "$temp_output" "$real_path"; then
         rm -f "$temp_output"
-        success "Up to date: $target_path"
+        success "Up to date: $real_path"
         return 0
     fi
 
-    if [ -f "$target_path" ]; then
-        backup_file "$target_path"
+    if [ -f "$real_path" ]; then
+        backup_file "$real_path"
     fi
 
-    mv "$temp_output" "$target_path"
+    mv "$temp_output" "$real_path"
 
-    success "Updated VS Code MCP config at $target_path"
-    record_path "$target_path"
+    success "Updated VS Code MCP config at $real_path"
+    record_path "$real_path"
 }
-
 merge_json_mcp_server() {
     local target_path="$1"
     local root_key="$2"
@@ -220,7 +235,7 @@ merge_json_mcp_server() {
     ensure_dir "$(dirname "$target_path")"
     temp_output="$(mktemp)"
 
-    python3 - "$target_path" "$root_key" "$REPO_SOURCE" > "$temp_output" <<'PY'
+    python3 - "$target_path" "$root_key" "$REPO_SOURCE" "$DEV_MODE" > "$temp_output" <<'PY'
 import json
 from pathlib import Path
 import sys
@@ -228,6 +243,7 @@ import sys
 target_path = Path(sys.argv[1])
 root_key = sys.argv[2]
 repo_source = sys.argv[3]
+dev_mode = sys.argv[4] == "true"
 if target_path.exists():
     data = json.loads(target_path.read_text())
 else:
@@ -235,11 +251,18 @@ else:
 bucket = data.get(root_key)
 if not isinstance(bucket, dict):
     bucket = {}
-bucket["oboe-mcp"] = {
-    "type": "stdio",
-    "command": "uvx",
-    "args": ["--from", repo_source, "oboe-mcp"],
-}
+if dev_mode:
+    bucket["oboe-mcp"] = {
+        "type": "stdio",
+        "command": "uv",
+        "args": ["run", "--directory", repo_source, "oboe-mcp"],
+    }
+else:
+    bucket["oboe-mcp"] = {
+        "type": "stdio",
+        "command": "uvx",
+        "args": ["--from", "git+https://github.com/warnes-innovations/oboe-mcp", "oboe-mcp"],
+    }
 data[root_key] = bucket
 sys.stdout.write(json.dumps(data, indent=2) + "\n")
 PY
@@ -267,18 +290,26 @@ merge_codex_config() {
     ensure_dir "$(dirname "$target_path")"
     temp_output="$(mktemp)"
 
-    python3 - "$target_path" "$REPO_SOURCE" > "$temp_output" <<'PY'
+    python3 - "$target_path" "$REPO_SOURCE" "$DEV_MODE" > "$temp_output" <<'PY'
 from pathlib import Path
 import re
 import sys
 
 target_path = Path(sys.argv[1])
 repo_source = sys.argv[2]
-block = (
-    '[mcp_servers.oboe-mcp]\n'
-    'command = "uvx"\n'
-    f'args = ["--from", "{repo_source}", "oboe-mcp"]\n'
-)
+dev_mode = sys.argv[3] == "true"
+if dev_mode:
+    block = (
+        '[mcp_servers.oboe-mcp]\n'
+        'command = "uv"\n'
+        f'args = ["run", "--directory", "{repo_source}", "oboe-mcp"]\n'
+    )
+else:
+    block = (
+        '[mcp_servers.oboe-mcp]\n'
+        'command = "uvx"\n'
+        'args = ["--from", "git+https://github.com/warnes-innovations/oboe-mcp", "oboe-mcp"]\n'
+    )
 text = target_path.read_text() if target_path.exists() else ""
 pattern = re.compile(r'^\[mcp_servers\.oboe-mcp\]\n(?:^(?!\[).*$\n?)*', re.M)
 
@@ -546,8 +577,13 @@ print_plan() {
         echo "Project directory: $PROJECT_DIR"
     fi
     echo ""
-    echo "The MCP server entries will use this checkout in uvx:"
-    echo "  uvx --from $REPO_SOURCE oboe-mcp"
+    if $DEV_MODE; then
+        echo "The MCP server entries will run from this local checkout:"
+        echo "  uv run --directory $REPO_SOURCE oboe-mcp"
+    else
+        echo "The MCP server entries will use the published GitHub release:"
+        echo "  uvx --from git+https://github.com/warnes-innovations/oboe-mcp oboe-mcp"
+    fi
     echo ""
     echo "Installing oboe-mcp also installs the oboe-cli command-line tool."
     echo "After installation you can run:"
@@ -572,9 +608,13 @@ print_summary() {
     echo "a human-friendly CLI for the same session files the MCP tools operate on."
     echo "Run 'oboe-cli --help' to see all available commands."
     echo ""
-    echo "If you want clients to install oboe-mcp from the published GitHub URL instead"
-    echo "of this local checkout, use the manual commands in README.md and replace the"
-    echo "local --from path with git+https://github.com/warnes-innovations/oboe-mcp."
+    if $DEV_MODE; then
+        echo "MCP is configured for local dev (edits reflected immediately)."
+        echo "Run ./install.sh (without --dev) to switch to the published GitHub release."
+    else
+        echo "MCP is configured for the published GitHub release."
+        echo "Run ./install.sh --dev to use the local checkout instead."
+    fi
 }
 
 main() {
@@ -598,4 +638,54 @@ main() {
     print_summary
 }
 
-main "$@"
+# ------------------------------------------------------------------
+# Parse flags (main() prompts interactively for remaining choices)
+# ------------------------------------------------------------------
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --dev)  DEV_MODE=true ;;
+        -h|--help)
+            echo "Usage: $0 [--dev]"
+            echo "  --dev   Use local repo (uv run --directory) instead of published GitHub URL."
+            echo "          If MCP is on dev and --dev is omitted, prompts to switch to published."
+            exit 0
+            ;;
+        *)
+            echo "Unknown argument: $1" >&2
+            exit 1
+            ;;
+    esac
+    shift
+done
+
+# ------------------------------------------------------------------
+# If VS Code MCP is currently on dev and --dev not given, prompt to revert
+# ------------------------------------------------------------------
+_VSCODE_USER_MCP="$(detect_vscode_user_dir)/mcp.json"
+if ! $DEV_MODE; then
+    _CURRENT_MODE="$(python3 - "$_VSCODE_USER_MCP" <<'PYEOF'
+import json, os, sys
+path = os.path.realpath(sys.argv[1]) if os.path.exists(sys.argv[1]) else ""
+if not path:
+    print("unknown")
+    sys.exit(0)
+try:
+    cfg = json.load(open(path))
+    entry = cfg.get("servers", {}).get("oboe-mcp", {})
+    print("dev" if entry.get("command") == "uv" else "published")
+except Exception:
+    print("unknown")
+PYEOF
+    )"
+
+    if [[ "$_CURRENT_MODE" == "dev" ]]; then
+        echo "MCP is currently configured for local dev."
+        read -r -p "Switch to published (uvx from GitHub)? [y/N]: " _MCP_CHOICE
+        case "${_MCP_CHOICE,,}" in
+            y|yes) ;;         # DEV_MODE stays false → merge writes published config
+            *)     DEV_MODE=true ;;  # keep dev
+        esac
+    fi
+fi
+
+main
