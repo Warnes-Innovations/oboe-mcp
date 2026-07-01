@@ -2,7 +2,7 @@
 
 # 2026-03-25 23:55:51Z
 
-<!-- copilotide Session 9424f55f-5129-4dea-9233-38f3f252143d (2026-03-25 23:55:51Z) -->
+<!-- VS Code Copilot IDE Session 9424f55f-5129-4dea-9233-38f3f252143d (2026-03-25 23:55:51Z) -->
 
 _**User (2026-03-25 23:55:51Z)**_
 
@@ -110,4 +110,4 @@ _**User (2026-03-26 00:05:22Z)**_
 
 Proceed.
 
-<!-- specstory-relocated: processed=2026-04-21T17:14:20Z source=cv-builder target=oboe-mcp reason="first-path signal (signal2) points to oboe-mcp" -->
+<!-- specstory-relocated: processed=2026-06-30T22:03:56Z source=cv-builder target=oboe-mcp reason="absolute path /Users/warnes/src/oboe-mcp/templates/agent-setup/**`" -->
