@@ -576,4 +576,4 @@ _**User (2026-04-21 17:25:14Z)**_
 
 Proceed.
 
-<!-- specstory-relocated: processed=2026-06-30T22:03:56Z source=cv-builder target=oboe-mcp reason="absolute path /Users/warnes/src/oboe-mcp/.venv/bin/activate" -->
+<!-- specstory-relocated: processed=2026-07-14T15:25:58Z source=cv-builder target=oboe-mcp reason="first absolute path mention" -->
