@@ -5,16 +5,16 @@
 # For commercial licensing, contact greg@warnes-innovations.com
 
 """
-OBO Session business logic — ported from obo_helper.py.
+OBO Session business logic — ported from oboe_helper.py.
 
 All public functions operate on Path objects or string paths.
 session_file parameters accept an absolute path or a filename
-relative to {base_dir}/.github/obo_sessions/.
+relative to {base_dir}/.github/oboe_sessions/.
 """
 
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -33,20 +33,21 @@ _VALID_APPROVAL_STATUSES = {"unreviewed", "approved", "denied"}
 _VALID_APPROVAL_MODES = {"immediate", "delayed"}
 _SCORE_COMPONENTS = {"urgency", "importance", "effort", "dependencies"}
 _SESSION_RE = re.compile(r"^session_\d{8}_\d{6}\.json$")
+_VALID_SESSION_STATUSES = {"active", "paused", "completed", "cancelled"}
 
 
 # ---------------------------------------------------------------------------
 # Path helpers
 # ---------------------------------------------------------------------------
 
-def obo_sessions_dir(base_dir: str | Path) -> Path:
-    """Return the .github/obo_sessions directory for a given base dir.
-    If base_dir already ends with .github/obo_sessions, return as-is.
+def oboe_sessions_dir(base_dir: str | Path) -> Path:
+    """Return the .github/oboe_sessions directory for a given base dir.
+    If base_dir already ends with .github/oboe_sessions, return as-is.
     """
     p = Path(base_dir).resolve()
-    if p.name == "obo_sessions" and p.parent.name == ".github":
+    if p.name == "oboe_sessions" and p.parent.name == ".github":
         return p
-    return p / ".github" / "obo_sessions"
+    return p / ".github" / "oboe_sessions"
 
 
 def resolve_base_dir(base_dir: str | Path | None = None) -> Path:
@@ -54,13 +55,13 @@ def resolve_base_dir(base_dir: str | Path | None = None) -> Path:
 
     Priority:
       1. *base_dir* if supplied (converted to an absolute path)
-      2. CWD if it contains ``.github/obo_sessions/``
+      2. CWD if it contains ``.github/oboe_sessions/``
       3. CWD as a fallback (directory may not yet exist)
     """
     if base_dir is not None:
         return Path(base_dir).resolve()
     cwd = Path.cwd()
-    if (cwd / ".github" / "obo_sessions").exists():
+    if (cwd / ".github" / "oboe_sessions").exists():
         return cwd
     return cwd
 
@@ -83,13 +84,13 @@ def resolve_session_file(
 
     Accepts:
     - An absolute path (returned as-is after resolving)
-    - A bare filename → resolved relative to base_dir/.github/obo_sessions/
+    - A bare filename → resolved relative to base_dir/.github/oboe_sessions/
     """
     p = Path(session_file)
     if p.is_absolute():
         return p.resolve()
     if base_dir is not None:
-        return (obo_sessions_dir(base_dir) / p).resolve()
+        return (oboe_sessions_dir(base_dir) / p).resolve()
     # Caller must pass an absolute path if base_dir is None
     raise ValueError(
         f"session_file '{session_file}' is relative but no base_dir "
@@ -301,7 +302,12 @@ def _open_count(session: dict) -> int:
 
 
 def _sync_session_status(session: dict) -> str:
-    """Keep the session-level status in sync with item states."""
+    """Keep the session-level status in sync with item states.
+
+    A 'cancelled' session retains that status regardless of item states.
+    """
+    if session.get("status") == "cancelled":
+        return "cancelled"
     if session.get("active_child_session"):
         session["status"] = "paused"
         session.pop("completed_at", None)
@@ -476,6 +482,8 @@ def list_sessions(
         rows = [r for r in rows if r.get("status") == "paused"]
     elif status_filter == "completed":
         rows = [r for r in rows if r.get("status") == "completed"]
+    elif status_filter == "cancelled":
+        rows = [r for r in rows if r.get("status") == "cancelled"]
     elif status_filter == "incomplete":
         rows = [
             r for r in rows
@@ -659,6 +667,28 @@ def mark_skip(
     return session
 
 
+def mark_deferred(
+    session_file: Path,
+    item_id: str | int,
+    reason: str = "",
+    deferred_until: str = "",
+) -> dict:
+    """Mark an item deferred. Returns updated item dict."""
+    session = load_session(session_file)
+    _normalize_existing_items(session)
+    item = _require_item(session, item_id)
+    item["status"] = "deferred"
+    if reason:
+        item["defer_reason"] = reason
+    if deferred_until:
+        item["deferred_until"] = deferred_until
+    _clear_blocker_fields(item)
+    _sync_session_status(session)
+    save_session(session_file, session)
+    _upsert_index(session_file.parent, session, session_file.name)
+    return item
+
+
 def mark_blocked(
     session_file: Path,
     item_id: str | int,
@@ -705,6 +735,116 @@ def complete_session(session_file: Path) -> dict:
     save_session(session_file, session)
     _upsert_index(session_file.parent, session, session_file.name)
     return session
+
+
+def cancel_session(session_file: Path, reason: str = "") -> dict:
+    """Mark a session cancelled (abandoned/superseded, not completed).
+
+    Unlike ``complete_session``, open items are allowed — the session is
+    simply marked as no longer being worked.
+    """
+    session = load_session(session_file)
+    _normalize_existing_items(session)
+    session["status"] = "cancelled"
+    session["cancelled_at"] = datetime.now().isoformat()
+    if reason:
+        session["cancel_reason"] = reason
+    save_session(session_file, session)
+    _upsert_index(session_file.parent, session, session_file.name)
+    return session
+
+
+def trim_sessions(
+    sessions_dir: Path,
+    before: datetime | str | None = None,
+    status_filter: str | None = "completed",
+    dry_run: bool = False,
+) -> dict:
+    """Delete session files matching *status_filter* and/or created before *before*.
+
+    Args:
+        sessions_dir: The ``.github/oboe_sessions`` directory.
+        before: Delete sessions created before this datetime.  Accepts a
+            ``datetime`` object or an ISO-8601 string.  Pass ``datetime.now()``
+            (or ``"now"``) to delete all sessions matching the status filter.
+        status_filter: Only delete sessions with this status.  Pass ``None``
+            to match any status.  Default is ``"completed"``.
+        dry_run: If True, return what *would* be deleted without touching any
+            files.
+
+    Returns:
+        A dict with keys ``deleted`` (list of filenames removed) and
+        ``retained`` (list of filenames kept), plus ``dry_run`` bool.
+
+    Raises:
+        ValueError: if *before* is not parseable as a datetime.
+    """
+    sessions_dir = Path(sessions_dir)
+
+    # Resolve the cutoff datetime
+    cutoff: datetime | None = None
+    if before is not None:
+        if isinstance(before, str):
+            if before.strip().lower() == "now":
+                cutoff = datetime.now()
+            else:
+                try:
+                    cutoff = datetime.fromisoformat(before)
+                except ValueError:
+                    raise ValueError(
+                        f"Cannot parse 'before' as a date/datetime: {before!r}. "
+                        "Use ISO-8601 format (e.g. '2026-04-01' or "
+                        "'2026-04-01T12:00:00') or 'now'."
+                    )
+        else:
+            cutoff = before
+
+    # Collect all session files from the index (fast path)
+    rows = list_sessions(sessions_dir)
+    deleted: list[str] = []
+    retained: list[str] = []
+
+    for row in rows:
+        filename = row.get("file", "")
+        status   = row.get("status", "")
+        created  = row.get("created", "")  # YYYY-MM-DD or ISO string
+
+        # Status filter
+        if status_filter is not None and status != status_filter:
+            retained.append(filename)
+            continue
+
+        # Age filter
+        if cutoff is not None and created:
+            try:
+                created_dt = datetime.fromisoformat(created[:10])  # date portion
+            except ValueError:
+                retained.append(filename)
+                continue
+            if created_dt > cutoff.replace(hour=0, minute=0, second=0, microsecond=0):
+                retained.append(filename)
+                continue
+
+        deleted.append(filename)
+
+    if not dry_run:
+        for filename in deleted:
+            sf = sessions_dir / filename
+            try:
+                sf.unlink(missing_ok=True)
+            except OSError:
+                pass
+        # Rebuild index from surviving files
+        rebuilt = _rebuild_index_from_files(sessions_dir)
+        _save_index(sessions_dir, rebuilt)
+
+    return {
+        "deleted":  deleted,
+        "retained": retained,
+        "dry_run":  dry_run,
+        "total_deleted":  len(deleted),
+        "total_retained": len(retained),
+    }
 
 
 def create_child_session(
@@ -777,9 +917,33 @@ def create_child_session(
 def complete_child_session(
     child_session_file: Path,
     resolution: str = "",
+    disposition: str = "completed",
 ) -> dict:
-    """Complete a child session and resume its parent session."""
-    child_session = complete_session(child_session_file)
+    """Close a child session and resume its parent session.
+
+    Args:
+        child_session_file: Path to the child session JSON.
+        resolution: Optional note stored on the unblocked parent item.
+        disposition: How the child is closed — ``"completed"`` (all items must
+            be done; default) or ``"cancelled"`` (abandoned; open items are
+            allowed).  In both cases the parent item is unblocked.
+
+    Raises:
+        ValueError: if *disposition* is not ``"completed"`` or ``"cancelled"``.
+        ValueError: if *disposition* is ``"completed"`` and open items remain.
+        ValueError: if the session has no ``parent_session_file`` field.
+    """
+    if disposition not in ("completed", "cancelled"):
+        raise ValueError(
+            f"Invalid disposition {disposition!r}. "
+            "Must be 'completed' or 'cancelled'."
+        )
+
+    if disposition == "completed":
+        child_session = complete_session(child_session_file)
+    else:  # cancelled
+        child_session = cancel_session(child_session_file, reason=resolution)
+
     parent_session_name = child_session.get("parent_session_file")
     if not parent_session_name:
         raise ValueError("Session is not a child session")
@@ -797,8 +961,11 @@ def complete_child_session(
         if blocker.get("session_file") == child_session_file.name:
             parent_item["status"] = "pending"
             _clear_blocker_fields(parent_item)
-            if resolution:
-                parent_item["child_session_resolution"] = resolution
+            note = resolution if resolution else (
+                "Child session was cancelled." if disposition == "cancelled" else ""
+            )
+            if note:
+                parent_item["child_session_resolution"] = note
 
     _sync_session_status(parent_session)
     save_session(parent_session_file, parent_session)
