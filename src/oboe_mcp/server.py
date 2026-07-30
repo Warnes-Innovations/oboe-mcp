@@ -7,7 +7,7 @@
 """
 Oboe MCP Server — 20 tools for One-By-One session management.
 
-Uses FastMCP for concise tool registration.
+Uses MCPServer for concise tool registration.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Sequence
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from oboe_mcp.session import (
     cancel_session,
@@ -47,7 +47,7 @@ from oboe_mcp.session import (
     _open_count,
 )
 
-mcp = FastMCP("oboe-mcp", instructions="One-By-One session management tools")
+mcp = MCPServer("oboe-mcp", instructions="One-By-One session management tools")
 
 _TOOL_EXCEPTIONS = (OSError, ValueError, json.JSONDecodeError)
 

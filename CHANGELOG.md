@@ -16,6 +16,10 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
 
 ## [Unreleased]
 
+### Changed
+
+- Migrated to MCP Python SDK 2.0 (`mcp>=2.0,<3`): `FastMCP` renamed to `MCPServer` in `server.py`; `pyproject.toml`/`uv.lock` updated accordingly. Tool decorator API, `mcp.run()`, and all tool registrations are unaffected.
+
 ## [0.3.0] - 2026-04-22
 
 ### Breaking Changes
