@@ -13,7 +13,7 @@ This file is part of Oboe MCP.
 For commercial licensing, contact greg@warnes-innovations.com
 -->
 
-Use the `oboe-mcp` MCP server to manage a One-By-One review session for the current workspace.
+Use the `oboe-mcp` MCP server to manage a One-By-One review session for the current workspace. If `oboe-mcp` is unavailable, fall back to `oboe-cli` (`oboe-cli` if installed, otherwise `uvx --from oboe-mcp oboe-cli`). Do not silently fall back to `obo_helper.py` or direct session-file edits.
 
 For every OBO decision that offers predefined choices, use the agent's structured question tool (`askQuestions`, `ask_questions`, `AskUserQuestion`, or the exact equivalent available in that client). Do not substitute plain-text numbered menus unless the structured question tool is unavailable, failing, or the prompt genuinely requires unrestricted freeform input; when falling back, state the reason explicitly.
 
@@ -41,6 +41,7 @@ Rules:
 
 - Never directly edit `.github/obo_sessions/*.json` or `index.json`.
 - Never synthesize session state from manual file writes when an `obo_*` tool exists.
+- Prefer `oboe-mcp` MCP tools; when unavailable, fall back to `oboe-cli` rather than using `obo_helper.py` or direct session-file edits.
 - Use the structured question tool by default for resume, merge, defer, replace, stop, approval, reorder, restore, and other predefined OBO menus.
 - Only fall back to plain text when the structured question tool is unavailable, failing, or the user response truly must be open-ended; say why before using the fallback.
 - Prefer OBO for multi-item workflows that need resumable queue state; prefer normal chat for one-off tasks.

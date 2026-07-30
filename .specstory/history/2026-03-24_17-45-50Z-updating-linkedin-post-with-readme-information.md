@@ -49,3 +49,915 @@ _**User (2026-03-24 17:51:48Z)**_
 - Persuasion export (like Scott Adams)
 - Marketing export 
 - LLM Agent developer
+
+
+_**User (2026-03-24 19:36:54Z)**_
+
+One correction:  
+1. The third persona is a software developer using LLM agents, not an LLM Agent Developer.  This is the key target audience.
+
+I agree with the persuasion expert.   Address the issues raised by the Persuastion and Marketing Experts with the new target group in mind, then re-do the persona reviews.
+
+
+
+_**User (2026-03-24 19:52:17Z)**_
+
+Define `CTA` in this context.
+
+---
+
+_**Agent (copilot/gpt-5.4)**_
+
+In this context, `CTA` means `call to action`.
+
+For a LinkedIn post, that is the part that tells the reader what to do next.
+
+Examples in your post:
+- `this is worth trying`
+- `take a look`
+- `GitHub: https://github.com/Warnes-Innovations/oboe-mcp`
+
+A stronger CTA usually does one of these:
+- asks for a specific action
+- makes the next step easy
+- ties the action to the reader’s problem
+
+Examples for this post:
+- `If you use coding agents for multi-step work, try this workflow: https://github.com/Warnes-Innovations/oboe-mcp`
+- `If you are tired of reconstructing agent progress from chat, take a look at oboe-mcp.`
+- `Try it on your next review or refactoring pass: https://github.com/Warnes-Innovations/oboe-mcp`
+
+So when the review said the CTA was soft, it meant the ending invited interest but did not push the reader toward a clear next step.
+
+---
+
+_**User (2026-03-24 19:55:22Z)**_
+
+Change the CTA to 
+
+* If you use coding agents for multi-step work, make your life easier: Try this workflow: https://github.com/Warnes-Innovations/oboe-mcp
+
+Then rerun the persona review.  
+
+_**User (2026-03-24 20:02:39Z)**_
+
+Add that an install script is included that knows were to put the agent-specific files.
+
+_**User (2026-03-24 20:30:07Z)**_
+
+Run a spelling and grammer check, and another persona review pass.
+
+---
+
+_**Agent (copilot/gpt-5.4)**_
+
+**Updating and reviewing files**
+
+I need to start with a commentary update, but I don't think there's a specific skill compliance necessary. First, I'll read the current files and might run a spell and grammar check using terminal tools like aspell. I'll check if codespell or LanguageTool is installed as well. It seems like a manual review could help too. The user wants action, so let's focus on fixing grammar and spelling while refreshing reviews. I’ll kick things off by reading the current files.
+
+---
+
+_**User (2026-03-24 20:34:37Z)**_
+
+Add that I just used oboe-mcp One-by-One to manage a large code refactoring that converted an overly large python file into NN module files, and look at the .specstory history to estimate the number of lines in the original monolitic python file and number of refactored module files.
+
+---
+
+_**Agent (copilot/gpt-5.4)**_
+
+<think><details><summary>Thought Process</summary>
+I’m checking the current draft and searching the `.specstory` history for the refactor you mentioned so I can add a concrete claim with a defensible estimate.
+
+The first search came up empty, so I’m mapping the `.specstory` contents and then searching more broadly for likely refactor traces and file-count clues.
+
+I found the session inventory. Next I’m reading the stored history entries themselves to recover the refactor details and derive a grounded estimate.
+
+I only see three local SpecStory history files in this repo, so I’m scanning them directly to see whether that refactor was captured here or whether the estimate will need to be explicitly marked as unavailable from this workspace history.
+
+The local repo history shows a pointer to the actual refactor session in `~/src/cv-builder/.specstory/history/...`, so I’m following that reference and extracting the size and split details from the original session record.
+</details></think>
+
+_**Agent (copilot/gpt-5.4)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file"><details>
+<summary>Tool use: **read_file**</summary>
+
+**Input:**
+
+- endLine: `220`
+- filePath: `/Users/warnes/src/oboe-mcp/LINKEDIN_POST.md`
+- startLine: `1`
+
+</details></tool-use>
+
+_**Agent (copilot/gpt-5.4)**_
+
+<tool-use data-tool-type="generic" data-tool-name="run_in_terminal"><details>
+<summary>Tool use: **run_in_terminal**</summary>
+
+**Input:**
+
+- command: `rg -n "monolithic|monolitic|refactor|module files|large python file|split into|NN|modules" .specstory --glob '*.md' --glob '*.json'`
+- explanation: `Search the SpecStory history for references to the large Python file refactor and any mention of line counts or module counts.`
+- goal: `Find refactor evidence in SpecStory history`
+- isBackground: `false`
+- timeout: `20000`
+
+</details></tool-use>
+
+_**Agent (copilot/gpt-5.4)**_
+
+<tool-use data-tool-type="generic" data-tool-name="list_dir"><details>
+<summary>Tool use: **list_dir**</summary>
+
+**Input:**
+
+- path: `/Users/warnes/src/oboe-mcp/.specstory`
+
+</details></tool-use>
+
+_**Agent (copilot/gpt-5.4)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file"><details>
+<summary>Tool use: **read_file**</summary>
+
+**Input:**
+
+- endLine: `240`
+- filePath: `/Users/warnes/src/oboe-mcp/.specstory/statistics.json`
+- startLine: `1`
+
+</details></tool-use>
+
+_**Agent (copilot/gpt-5.4)**_
+
+<tool-use data-tool-type="generic" data-tool-name="list_dir"><details>
+<summary>Tool use: **list_dir**</summary>
+
+**Input:**
+
+- path: `/Users/warnes/src/oboe-mcp/.specstory/history`
+
+</details></tool-use>
+
+_**Agent (copilot/gpt-5.4)**_
+
+<tool-use data-tool-type="generic" data-tool-name="list_dir"><details>
+<summary>Tool use: **list_dir**</summary>
+
+**Input:**
+
+- path: `/Users/warnes/src/oboe-mcp/.specstory/cli`
+
+</details></tool-use>
+
+_**Agent (copilot/gpt-5.4)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file"><details>
+<summary>Tool use: **read_file**</summary>
+
+**Input:**
+
+- endLine: `260`
+- filePath: `/Users/warnes/src/oboe-mcp/.specstory/history/2026-03-23_19-19-44Z-investigating-obomcp-feature-gaps-and-agent-behavior.md`
+- startLine: `1`
+
+</details></tool-use>
+
+_**Agent (copilot/gpt-5.4)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file"><details>
+<summary>Tool use: **read_file**</summary>
+
+**Input:**
+
+- endLine: `260`
+- filePath: `/Users/warnes/src/oboe-mcp/.specstory/history/2026-03-23_20-23-32Z-checking-completion-of-implementation-plan-file.md`
+- startLine: `1`
+
+</details></tool-use>
+
+_**Agent (copilot/gpt-5.4)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file"><details>
+<summary>Tool use: **read_file**</summary>
+
+**Input:**
+
+- endLine: `260`
+- filePath: `/Users/warnes/src/oboe-mcp/.specstory/history/2026-03-24_17-45-50Z-updating-linkedin-post-with-readme-information.md`
+- startLine: `1`
+
+</details></tool-use>
+
+_**Agent (copilot/gpt-5.4)**_
+
+**Inspecting context and history**
+
+I need to inspect the history first before determining how to insert details, likely including a phrase like “I just used…” and an estimate. I should be cautious as I gather this context. It makes sense to consider using a rg search in the .specstory to help find the information I need. This way, I can ensure that I'm on the right track before moving forward.
+
+---
+
+_**User (2026-03-24 20:35:12Z)**_
+
+You may need to look at the .specstory in `cv-builder`.
+
+_**User (2026-03-24 20:38:00Z)**_
+
+Do one more pass, both on the sentance text, and optimizing it's location.   Consult the persona for suggestions about that.
+
+_**User (2026-03-24 20:44:15Z)**_
+
+Change "priority-scored, dependency-aware items" to items ordered by priority and dependencies.
+
+---
+
+_**Agent (copilot/gpt-5.4)**_
+
+I’m making that wording change directly in the post so it reads less technical and more natural for the target audience.
+
+---
+
+_**User (2026-03-24 20:44:51Z)**_
+
+You can also drop the first bullet item "an overview..."
+
+---
+
+_**Agent (copilot/gpt-5.4)**_
+
+<think><details><summary>Thought Process</summary>
+I’m removing that first bullet from the durable-session list and leaving the rest of the structure unchanged.
+
+I found the bullet list. I’m removing the first item as requested.
+</details></think>
+
+_**Agent (copilot/gpt-5.4)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file"><details>
+<summary>Tool use: **read_file**</summary>
+
+**Input:**
+
+- endLine: `220`
+- filePath: `/Users/warnes/src/oboe-mcp/LINKEDIN_POST.md`
+- startLine: `1`
+
+</details></tool-use>
+
+_**Agent (copilot/gpt-5.4)**_
+
+I’m removing that first bullet from the durable-session list and leaving the rest of the structure unchanged.
+
+---
+
+_**User (2026-03-24 20:59:41Z)**_
+
+Have the personas review this version.
+
+_**User (2026-03-24 21:03:39Z)**_
+
+Have the personas review this revised version.
+
+_**User (2026-03-24 21:07:10Z)**_
+
+Have the personas review this revised version.
+
+---
+
+_**Agent (copilot/gpt-5.4)**_
+
+**Checking user request**
+
+The user has asked for a review of a revised version. I need to check the current file to see if there are any changes. It's likely the same, but I'll still read it thoroughly and probably update the review files. There's no special skill needed since this isn't a customization request. I’ll focus on updating my commentary and summarizing my findings based on any minor updates I find. Let’s start by inspecting the current file!
+
+---
+
+_**User (2026-03-24 21:10:42Z)**_
+
+Improve the reasoning vs workflow sentance.
+
+_**User (2026-03-24 21:13:08Z)**_
+
+Is it better with LLM in or out of the sentance?
+
+_**User (2026-03-24 21:18:40Z)**_
+
+Any remaining concerns from the personas?
+
+_**User (2026-03-24 21:28:57Z)**_
+
+Have the personas review this revised version.
+
+_**User (2026-03-24 21:32:32Z)**_
+
+How do the personas feel about dropping "blocked work tracking" since it is already covered in "an agent-readable record ..."
+
+---
+
+_**Agent (copilot/gpt-5.4)**_
+
+They would likely support dropping it.
+
+Why each persona would favor that change:
+
+**Persuasion**
+- It reduces repetition.
+- The benefits list becomes tighter and easier to scan.
+- `blocked work tracking` is already implied by:
+  `an agent-readable record of what was reviewed, approved, skipped, blocked, and completed`
+
+**Marketing**
+- It improves scannability.
+- The list becomes more benefit-dense and less feature-repetitive.
+- Removing overlap makes the middle section feel leaner, which was one of the remaining concerns.
+
+**Software Developer Using LLM Agents**
+- It does not lose meaning because `blocked` is still explicitly named later.
+- Developers will still understand that blocked work remains visible.
+- The list reads cleaner and less padded.
+
+So the likely persona verdict is:
+- `yes, drop it`
+
+The only caveat:
+- `blocked work tracking` is a very plain-language benefit
+- `an agent-readable record ... blocked ...` is slightly more abstract
+
+If you want the cleanest version without losing that benefit, a better move is:
+- remove `blocked work tracking`
+- keep the final bullet as-is
+
+If you want to preserve the plain-language benefit more explicitly, you could instead change the final bullet to:
+- `a readable record of what was reviewed, approved, skipped, blocked, and completed`
+
+That makes it less technical and still covers the same point.
+
+---
+
+_**User (2026-03-24 21:34:13Z)**_
+
+How about this phrasing?
+
+_**User (2026-03-24 21:34:57Z)**_
+
+```
+- a record of what was reviewed, approved, skipped, blocked, and completed
+```
+
+---
+
+_**Agent (copilot/gpt-5.4)**_
+
+Yes, that phrasing works well.
+
+Persona take:
+
+**Persuasion**
+- Good because it is concrete and compresses several benefits into one line.
+- Better than `blocked work tracking` alone because it feels more complete and less fragmentary.
+
+**Marketing**
+- Good because it reduces repetition in the benefit list.
+- Helps the middle section scan faster.
+- Reads as a stronger, fuller benefit than a standalone `blocked work tracking` bullet.
+
+**Software Developer Using LLM Agents**
+- Good because it is explicit and practical.
+- Developers will understand immediately what kind of state is preserved.
+- It is less jargony than `agent-readable record`, which is a plus.
+
+My take:
+- Keep this line
+- Drop `blocked work tracking`
+
+If you want one even smoother version, this is slightly more natural:
+- `a clear record of what was reviewed, approved, skipped, blocked, and completed`
+
+That said, your current phrasing is already solid.
+
+---
+
+_**User (2026-03-24 21:36:51Z)**_
+
+What about revising the two pentultimate paragraphs to:
+```
+`oboe-mcp` is open source and works out-of-the box with Copilot, Codex, Claude Code, and Cline. It includes the MCP server plus agent instruction, prompts, and skill templates to tell agents when to use the One-by-One workflow.  It also has an install script that knows where to place the agent-specific files to reduce manual setup.
+```
+
+_**User (2026-03-24 21:39:31Z)**_
+
+Now, review the complete current version.
+
+---
+
+_**Agent (copilot/gpt-5.4)**_
+
+**Reviewing current version**
+
+I need to focus on the user's request to review the complete current version. I'll adopt a code review mindset, looking for any findings with file references. If I don’t find any issues, I’ll explicitly state that and mention any residual risks or testing gaps. First, I need to read through the current file to inspect it properly. I might update the commentary afterward and then proceed with the reading.
+
+---
+
+_**User (2026-03-24 21:41:07Z)**_
+
+Now review for style.
+
+_**User (2026-03-24 21:43:00Z)**_
+
+You used an outdated version.  Reread it.
+
+1. Yes, prioritize rhythm, redundancy, and scanability over technical completeness.
+2. I'm using backticks for the markdown fomatting effect.
+
+---
+
+_**Agent (copilot/gpt-5.4)**_
+
+**Reading current file**
+
+I see that I need to acknowledge the user's request and make sure to reread the current file since they mentioned it's outdated. It's essential for me to provide accurate information. I’ll include a brief commentary before using the tool. I can't apply any specific skills just yet because I need to ensure I'm referencing the most recent data before proceeding. Let's make sure I get this right for the user!
+
+---
+
+_**User (2026-03-24 21:44:32Z)**_
+
+Do the polish.
+
+---
+
+_**Agent (copilot/gpt-5.4)**_
+
+**Editing the file**
+
+I need to edit the file, and it seems like I might not need any special skills for this. I should comment before I start working. I already have the content but should probably read the current file due to user changes. While I can use the provided content, reading is still essential. The user asked for polish, so I'll tighten up some lines and simplify sentences. I think breaking dense paragraphs into two might help with readability.
+
+---
+
+_**User (2026-03-24 21:47:30Z)**_
+
+I made a slight change.
+
+_**User (2026-03-24 21:49:56Z)**_
+
+Would it help to change `One-by-One review sessions.` to `sequential One-by-One sessions.`?
+
+---
+
+_**Agent (copilot/gpt-5.4)**_
+
+No, I would not change it to `sequential One-by-One sessions`.
+
+Why:
+- `One-by-One` already implies sequential handling
+- adding `sequential` feels redundant
+- it makes the phrase heavier without adding clarity
+- `review sessions` gives the reader a clearer mental model than just `sessions`
+
+Best current option:
+- `One-by-One review sessions`
+
+If you want a slight variant, these are the only alternatives I’d consider:
+- `One-by-One sessions`
+- `One-by-One workflows`
+
+But between those, I’d still keep:
+- `One-by-One review sessions`
+
+It is the clearest and most natural in this post.
+
+---
+
+_**User (2026-03-24 21:50:27Z)**_
+
+Suggest a good title.
+
+_**User (2026-03-24 21:52:10Z)**_
+
+How about "Coding Agents Need Workflow State, Not More Chat"
+
+---
+
+_**Agent (copilot/gpt-5.4)**_
+
+Yes, that’s a strong title.
+
+Why it works:
+- clear and insight-driven
+- directly expresses the core thesis of the post
+- sounds like an observation, not a sales pitch
+- broad enough to attract the right audience
+- short enough to be memorable
+
+Compared with:
+- `When Coding Agents Need Workflow State, Not More Chat`
+
+Your version is slightly stronger as a title because it is more direct and less conditional.
+
+So I would prefer:
+`Coding Agents Need Workflow State, Not More Chat`
+
+If you want, I can also suggest:
+1. a slightly punchier version
+2. a slightly more technical version
+3. a version that includes `oboe-mcp` in the title
+
+---
+
+_**User (2026-03-24 21:52:49Z)**_
+
+Make alternative suggestions.
+
+_**User (2026-03-24 21:57:36Z)**_
+
+I like "Coding Agents Need Workflow State, Not Just Chat".  
+
+Would it tie things together better if we changed:
+```
+We built `oboe-mcp` for exactly that problem: One-by-One review sessions.
+```
+to
+```
+We built `oboe-mcp` for exactly that problem: One-by-One workflow sessions.
+```
+
+---
+
+_**Agent (copilot/gpt-5.4)**_
+
+I would not change it to `One-by-One workflow sessions`.
+
+Why:
+- `workflow` is already doing a lot of work in the title:
+  `Coding Agents Need Workflow State, Not Just Chat`
+
+
+---
+
+_**User (2026-03-24 21:59:15Z)**_
+
+How about
+```
+We built `oboe-mcp` to provide One-by-One review sessions to solve exactly that problem.
+```
+
+---
+
+_**Agent (copilot/gpt-5.4)**_
+
+I would not use that version.
+
+Why it is weaker:
+- `to provide ... to solve` is clunky and repetitive
+- it sounds more like product copy than a clean sentence
+- it has less punch than your current line
+- the phrase `provide One-by-One review sessions` is a bit unnatural
+
+Better than that:
+- `We built `oboe-mcp` for exactly that problem: One-by-One review sessions.`
+
+If you want a smoother alternative in the same spirit, these are better:
+
+1. `We built `oboe-mcp` for exactly that problem: One-by-One review sessions.`
+2. `We built `oboe-mcp` to handle exactly that kind of work: One-by-One review sessions.`
+3. `We built `oboe-mcp` around exactly that problem: One-by-One review sessions.`
+4. `That is exactly the kind of problem `oboe-mcp` was built for: One-by-One review sessions.`
+
+My recommendation:
+- keep your current version, or
+- use `That is exactly the kind of problem `oboe-mcp` was built for: One-by-One review sessions.`
+
+That last one ties especially well to the sentence before it.
+
+---
+
+_**User (2026-03-24 21:59:54Z)**_
+
+How about this one:
+```
+We built `oboe-mcp` One-by-One review sessions to solve that exact problem.
+```
+
+---
+
+_**Agent (copilot/gpt-5.4)**_
+
+No, this one is worse.
+
+Why:
+- it is grammatically awkward
+- it sounds like `oboe-mcp One-by-One review sessions` is a noun pile with a missing preposition
+- the reader has to mentally supply something like `for` or `around`
+- it loses the clean pause and emphasis that your earlier version had
+
+`We built oboe-mcp One-by-One review sessions...` reads like:
+- did you build the product?
+- or did you build the sessions?
+- or is `oboe-mcp One-by-One review sessions` the product name?
+
+Better options, in order:
+
+1. `We built `oboe-mcp` for exactly that problem: One-by-One review sessions.`
+2. `That is exactly the kind of problem `oboe-mcp` was built for: One-by-One review sessions.`
+3. `We built `oboe-mcp` around exactly that problem: One-by-One review sessions.`
+
+Best recommendation:
+- keep `We built `oboe-mcp` for exactly that problem: One-by-One review sessions.`
+
+It is still the cleanest and most readable version.
+
+---
+
+_**User (2026-03-24 22:01:03Z)**_
+
+The issue with your recommended statement is that it can be read as meaning the "One-by-One review sessions"  are the problem.
+
+---
+
+_**Agent (copilot/gpt-5.4)**_
+
+Yes, that is a fair objection.
+
+`We built oboe-mcp for exactly that problem: One-by-One review sessions.` can momentarily read as if `One-by-One review sessions` names the problem, not the solution.
+
+Better options that remove that ambiguity:
+
+1. `We built `oboe-mcp` to solve that problem with One-by-One review sessions.`
+2. `To solve that problem, we built `oboe-mcp` around One-by-One review sessions.`
+3. `We built `oboe-mcp` as a One-by-One review workflow for exactly that problem.`
+4. `That is exactly the problem `oboe-mcp` is built to solve, using One-by-One review sessions.`
+
+My recommendation:
+`We built `oboe-mcp` to solve that problem with One-by-One review sessions.`
+
+Why this one is best:
+- no ambiguity about problem vs solution
+- keeps the sentence simple
+- preserves `One-by-One review sessions`, which is still your clearest phrase
+- reads naturally after `It is a workflow problem.`
+
+If you want a slightly stronger, smoother version, I’d also consider:
+`To solve that problem, we built `oboe-mcp` around One-by-One review sessions.`
+
+That one is a bit more polished, but slightly more abstract.
+
+---
+
+_**User (2026-03-24 22:02:11Z)**_
+
+```
+We built oboe-mcp to solve exactly that problem with One-by-One review sessions.
+```
+
+
+
+_**User (2026-03-24 22:02:44Z)**_
+
+```
+We built oboe-mcp to solve exactly that problem with One-by-One review sessions.
+```
+or
+```
+`oboe-mcp` comes the rescue with One-by-One review sessions.
+```
+
+---
+
+_**Agent (copilot/gpt-5.4)**_
+
+Between those two, the first one is much better.
+
+Use:
+`We built oboe-mcp to solve exactly that problem with One-by-One review sessions.`
+
+Why:
+- clear subject and action
+- no ambiguity about problem vs solution
+- matches the tone of the rest of the post
+- reads naturally after `It is a workflow problem.`
+
+Do not use:
+`oboe-mcp comes the rescue with One-by-One review sessions.`
+
+Why not:
+- it is grammatically wrong; it should be `comes to the rescue`
+- even corrected, `comes to the rescue` sounds too promotional and informal for this post
+- it weakens the credibility of an otherwise direct, thoughtful draft
+
+If you want the best polished version of the first option, I’d use:
+`We built `oboe-mcp` to solve exactly that problem with One-by-One review sessions.`
+
+That is strong and publishable.
+
+---
+
+_**User (2026-03-24 22:03:46Z)**_
+
+```
+`oboe-mcp` solves that exact problem by providing One-by-One review sessions.
+```
+
+
+
+_**User (2026-03-24 22:04:56Z)**_
+
+```
+Our `oboe-mcp` One-by-One review sessions solve that exact problem.
+```
+
+
+
+---
+
+_**Agent (copilot/gpt-5.4)**_
+
+This one is better than the previous awkward versions, but I still would not use it.
+
+`Our oboe-mcp One-by-One review sessions solve that exact problem.`
+
+What works:
+- grammatically valid
+- clearer than `We built oboe-mcp One-by-One review sessions...`
+- directly links the solution to the problem
+
+What still feels off:
+- `Our oboe-mcp One-by-One review sessions` is still a bit of a noun stack
+- it sounds like `One-by-One review sessions` are a branded product line, which is a little stiff
+- `Our` makes it feel more promotional and less insight-driven
+
+Better than this:
+1. `We built `oboe-mcp` to solve exactly that problem with One-by-One review sessions.`
+2. `That is exactly the problem `oboe-mcp` is built to solve, using One-by-One review sessions.`
+3. `To solve exactly that problem, we built `oboe-mcp` around One-by-One review sessions.`
+
+Best recommendation remains:
+`We built `oboe-mcp` to solve exactly that problem with One-by-One review sessions.`
+
+That is still the cleanest balance of:
+- clarity
+- tone
+- rhythm
+- lack of ambiguity
+
+---
+
+_**User (2026-03-24 22:06:02Z)**_
+
+```
+Solve that exact problem using oboe-mcp's One-by-One review sessions.
+```
+
+
+
+_**User (2026-03-24 22:10:32Z)**_
+
+do one final full-post read for tone consistency, and have the personas review 
+
+_**User (2026-03-24 22:15:35Z)**_
+
+What are your best declarative versions of that line?
+
+---
+
+_**Agent (copilot/gpt-5.4)**_
+
+**Creating a concise response**
+
+I see that I need to focus on giving a clear answer without using tools. The user is asking for the best declarative versions, so I'll consider providing ranked options. It's essential to mention the current line as well and possibly state a preferred option.
+
+I can include inline code for the sentence options,
+
+---
+
+_**User (2026-03-24 22:16:26Z)**_
+
+How about ``oboe-mcp`'s One-by-One review sessions solve that exact problem.`
+
+---
+
+_**Agent (copilot/gpt-5.4)**_
+
+It is better than the imperative version.
+
+Why it works:
+- It is declarative, so it matches the surrounding tone.
+- It is concise.
+- It keeps the focus on the solution, not on promotion.
+
+Why I still would not rank it first:
+- It leads with a possessive product name, which is a little clunky.
+- “One-by-One review sessions” becomes the grammatical subject, so the sentence feels slightly more mechanical than natural.
+- It loses the founder-builder voice that “We built...” gives you.
+
+My ranking for this specific option:
+- Good
+- Better than “Solve that exact problem using...”
+- Slightly weaker than “We built oboe-mcp to solve exactly that problem with One-by-One review sessions.”
+
+If you want the cleanest declarative versions, I would rank them:
+
+1. We built oboe-mcp to solve exactly that problem with One-by-One review sessions.
+2. oboe-mcp solves exactly that problem with One-by-One review sessions.
+3. oboe-mcp's One-by-One review sessions solve that exact problem.
+
+So: acceptable, but still not the strongest.
+
+---
+
+_**User (2026-03-24 22:17:18Z)**_
+
+How about
+```
+We build `oboe-mcp`'s One-by-One review sessions solve that exact problem.
+```
+
+---
+
+_**Agent (copilot/gpt-5.4)**_
+
+No. That version is not workable.
+
+Problems:
+- It is ungrammatical: “We build ... sessions solve ...” has two competing verbs.
+- It stacks too many nouns together: “`oboe-mcp`'s One-by-One review sessions”.
+- It reads like a broken merge of two earlier candidates.
+
+Better corrections in the same direction are:
+
+1. `We built oboe-mcp to solve exactly that problem with One-by-One review sessions.`
+2. `We built oboe-mcp around One-by-One review sessions to solve exactly that problem.`
+3. `oboe-mcp solves exactly that problem with One-by-One review sessions.`
+
+If you want the strongest version for [LINKEDIN_POST.md](/Users/warnes/src/oboe-mcp/LINKEDIN_POST.md#L17), I would still use:
+
+We built `oboe-mcp` to solve exactly that problem with One-by-One review sessions.
+
+It is the clearest, most natural, and best matched to the rest of the post’s voice.
+
+---
+
+_**User (2026-03-24 22:17:37Z)**_
+
+How about
+```
+We build `oboe-mcp`'s One-by-One review sessions to solve that exact problem.
+```
+
+---
+
+_**Agent (copilot/gpt-5.4)**_
+
+Closer, but still not good.
+
+What improved:
+- The sentence is now grammatical.
+- It restores the builder voice with “We build”.
+
+What still does not work:
+- “We build `oboe-mcp`'s One-by-One review sessions” is still awkward because the object of “build” is a possessive noun stack.
+- It reads as if the sessions are a separate product owned by `oboe-mcp`, rather than a feature or workflow inside it.
+- Present tense “We build” is weaker here than past tense “We built”, because the post is describing why the product exists.
+
+Better versions:
+
+1. We built `oboe-mcp` to solve exactly that problem with One-by-One review sessions.
+
+
+---
+
+_**User (2026-03-24 22:17:48Z)**_
+
+How about
+```
+We built `oboe-mcp`'s One-by-One review sessions to solve that exact problem.
+```
+
+_**User (2026-03-24 22:18:55Z)**_
+
+Let's use `We built oboe-mcp around One-by-One review sessions to solve exactly that problem.`
+
+---
+
+_**Agent (copilot/gpt-5.4)**_
+
+I’m replacing the broken draft line with your chosen declarative version and leaving the rest of the post unchanged.
+
+---
+
+_**User (2026-03-24 22:25:24Z)**_
+
+/review , /test, then /commit if all green
+
+_**User (2026-03-24 22:26:53Z)**_
+
+1.
+
+---
+
+_**Agent (copilot/gpt-5.4)**_
+
+**Planning a project update**
+
+I need to proceed with the approval process and edit files before testing and committing if everything passes. I’m thinking it’s not absolutely necessary, but maybe managing a plan could help. I’ll commit only if everything is green since the user requested it. I ought to read the current files before making any patches, and I have sufficient content for LinkedIn and reviews, although those need updating. I’ll also think about a summary after everything’s completed.
+
+<!-- specstory-relocated: processed=2026-04-21T17:14:20Z source=oboe-mcp target=oboe-mcp reason="already in correct repo" -->
