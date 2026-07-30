@@ -41,8 +41,13 @@ _VALID_SESSION_STATUSES = {"active", "paused", "completed", "cancelled"}
 # ---------------------------------------------------------------------------
 
 def oboe_sessions_dir(base_dir: str | Path) -> Path:
-    """Return the .github/oboe_sessions directory for a given base dir."""
-    return Path(base_dir).resolve() / ".github" / "oboe_sessions"
+    """Return the .github/oboe_sessions directory for a given base dir.
+    If base_dir already ends with .github/oboe_sessions, return as-is.
+    """
+    p = Path(base_dir).resolve()
+    if p.name == "oboe_sessions" and p.parent.name == ".github":
+        return p
+    return p / ".github" / "oboe_sessions"
 
 
 def resolve_base_dir(base_dir: str | Path | None = None) -> Path:

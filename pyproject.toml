@@ -67,3 +67,9 @@ testpaths = ["tests"]
 [[tool.mypy.overrides]]
 module = ["oboe_mcp", "oboe_mcp.*"]
 ignore_missing_imports = true
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.3.0",
+]

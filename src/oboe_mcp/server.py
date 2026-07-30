@@ -104,9 +104,15 @@ def _resolve(session_file: str, base_dir: str | None = None) -> Path:
         return p
     if base_dir:
         _validate_base_dir(base_dir)
-        return oboe_sessions_dir(base_dir) / session_file
+        sessions_dir = oboe_sessions_dir(base_dir)
+        # Defensive: if session_file is already a path under sessions_dir, don't join again
+        session_path = Path(session_file)
+        if session_path.parent == sessions_dir:
+            return session_path.resolve()
+        return (sessions_dir / session_file).resolve()
     raise ValueError(
-        "session_file must be an absolute path or base_dir must be provided"
+        "session_file must be an absolute path or base_dir (project root) must be provided. "
+        "base_dir should be the project root, not .github/obo_sessions."
     )
 
 
