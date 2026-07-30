@@ -21,7 +21,7 @@ classifiers = [
 	"Topic :: Software Development :: Libraries :: Python Modules",
 	"Typing :: Typed",
 ]
-dependencies = ["mcp>=1.0"]
+dependencies = ["mcp>=2.0,<3"]
 
 [project.urls]
 Homepage = "https://github.com/Warnes-Innovations/oboe-mcp"
