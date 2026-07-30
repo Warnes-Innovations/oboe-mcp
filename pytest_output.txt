@@ -1,0 +1,365 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0 -- /home/warnes/src/oboe-mcp/.venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/warnes/src/oboe-mcp
+configfile: pyproject.toml
+plugins: anyio-4.12.1, asyncio-1.3.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 248 items
+
+tests/test_cli.py::test_help_exits_cleanly PASSED                        [  0%]
+tests/test_cli.py::test_no_command_returns_1 PASSED                      [  0%]
+tests/test_cli.py::test_sessions_empty_dir PASSED                        [  1%]
+tests/test_cli.py::test_sessions_lists_created_session PASSED            [  1%]
+tests/test_cli.py::test_sessions_filter_active PASSED                    [  2%]
+tests/test_cli.py::test_sessions_filter_completed_empty PASSED           [  2%]
+tests/test_cli.py::test_create_auto_generates_filename PASSED            [  2%]
+tests/test_cli.py::test_create_with_explicit_session PASSED              [  3%]
+tests/test_cli.py::test_create_reports_item_count PASSED                 [  3%]
+tests/test_cli.py::test_create_duplicate_session_returns_error PASSED    [  4%]
+tests/test_cli.py::test_create_missing_input_file_returns_error PASSED   [  4%]
+tests/test_cli.py::test_create_invalid_json_returns_error PASSED         [  4%]
+tests/test_cli.py::test_create_non_array_json_returns_error PASSED       [  5%]
+tests/test_cli.py::test_merge_appends_items PASSED                       [  5%]
+tests/test_cli.py::test_merge_missing_session_returns_error PASSED       [  6%]
+tests/test_cli.py::test_status_shows_counts PASSED                       [  6%]
+tests/test_cli.py::test_status_shows_session_filename PASSED             [  6%]
+tests/test_cli.py::test_status_shows_category_breakdown PASSED           [  7%]
+tests/test_cli.py::test_status_missing_session_returns_error PASSED      [  7%]
+tests/test_cli.py::test_list_shows_all_items PASSED                      [  8%]
+tests/test_cli.py::test_list_sorted_by_priority PASSED                   [  8%]
+tests/test_cli.py::test_list_filter_by_status PASSED                     [  8%]
+tests/test_cli.py::test_next_shows_highest_priority_item PASSED          [  9%]
+tests/test_cli.py::test_next_prefers_in_progress PASSED                  [  9%]
+tests/test_cli.py::test_next_shows_no_items_when_all_done PASSED         [ 10%]
+tests/test_cli.py::test_next_shows_progress_line PASSED                  [ 10%]
+tests/test_cli.py::test_show_displays_item_detail PASSED                 [ 10%]
+tests/test_cli.py::test_show_unknown_id_returns_error PASSED             [ 11%]
+tests/test_cli.py::test_show_string_id PASSED                            [ 11%]
+tests/test_cli.py::test_complete_marks_item_done PASSED                  [ 12%]
+tests/test_cli.py::test_complete_shows_progress PASSED                   [ 12%]
+tests/test_cli.py::test_complete_unknown_id_returns_error PASSED         [ 12%]
+tests/test_cli.py::test_complete_multiword_resolution PASSED             [ 13%]
+tests/test_cli.py::test_skip_marks_item_skipped PASSED                   [ 13%]
+tests/test_cli.py::test_skip_shows_reason PASSED                         [ 14%]
+tests/test_cli.py::test_skip_no_reason_accepted PASSED                   [ 14%]
+tests/test_cli.py::test_skip_unknown_id_returns_error PASSED             [ 14%]
+tests/test_cli.py::test_in_progress_marks_item PASSED                    [ 15%]
+tests/test_cli.py::test_in_progress_shows_count PASSED                   [ 15%]
+tests/test_cli.py::test_in_progress_unknown_id_returns_error PASSED      [ 16%]
+tests/test_cli.py::test_block_marks_item_blocked PASSED                  [ 16%]
+tests/test_cli.py::test_block_shows_blocker_text PASSED                  [ 16%]
+tests/test_cli.py::test_block_unknown_id_returns_error PASSED            [ 17%]
+tests/test_cli.py::test_approve_sets_approved PASSED                     [ 17%]
+tests/test_cli.py::test_approve_denied PASSED                            [ 18%]
+tests/test_cli.py::test_approve_with_mode PASSED                         [ 18%]
+tests/test_cli.py::test_approve_with_note PASSED                         [ 18%]
+tests/test_cli.py::test_approve_mode_without_approved_returns_error PASSED [ 19%]
+tests/test_cli.py::test_approve_unknown_id_returns_error PASSED          [ 19%]
+tests/test_cli.py::test_update_title_field PASSED                        [ 20%]
+tests/test_cli.py::test_update_urgency_recalculates_priority PASSED      [ 20%]
+tests/test_cli.py::test_update_importance_recalculates_priority PASSED   [ 20%]
+tests/test_cli.py::test_update_effort_recalculates_priority PASSED       [ 21%]
+tests/test_cli.py::test_update_invalid_status_returns_error PASSED       [ 21%]
+tests/test_cli.py::test_update_unknown_id_returns_error PASSED           [ 22%]
+tests/test_cli.py::test_complete_session_succeeds_when_all_done PASSED   [ 22%]
+tests/test_cli.py::test_complete_session_rejects_pending_items PASSED    [ 22%]
+tests/test_cli.py::test_complete_session_shows_final_counts PASSED       [ 23%]
+tests/test_cli.py::test_create_child_pauses_parent PASSED                [ 23%]
+tests/test_cli.py::test_create_child_without_parent_item_id PASSED       [ 24%]
+tests/test_cli.py::test_complete_child_resumes_parent PASSED             [ 24%]
+tests/test_cli.py::test_session_required_commands_fail_without_session[cmd_args0] PASSED [ 25%]
+tests/test_cli.py::test_session_required_commands_fail_without_session[cmd_args1] PASSED [ 25%]
+tests/test_cli.py::test_session_required_commands_fail_without_session[cmd_args2] PASSED [ 25%]
+tests/test_cli.py::test_session_required_commands_fail_without_session[cmd_args3] PASSED [ 26%]
+tests/test_cli.py::test_session_required_commands_fail_without_session[cmd_args4] PASSED [ 26%]
+tests/test_cli.py::test_session_required_commands_fail_without_session[cmd_args5] PASSED [ 27%]
+tests/test_cli.py::test_session_required_commands_fail_without_session[cmd_args6] PASSED [ 27%]
+tests/test_cli.py::test_session_required_commands_fail_without_session[cmd_args7] PASSED [ 27%]
+tests/test_cli.py::test_session_required_commands_fail_without_session[cmd_args8] PASSED [ 28%]
+tests/test_cli.py::test_session_required_commands_fail_without_session[cmd_args9] PASSED [ 28%]
+tests/test_cli.py::test_session_required_commands_fail_without_session[cmd_args10] PASSED [ 29%]
+tests/test_cli.py::test_session_required_commands_fail_without_session[cmd_args11] PASSED [ 29%]
+tests/test_cli.py::test_resolve_base_dir_uses_cwd_when_obo_sessions_exists PASSED [ 29%]
+tests/test_cli.py::test_resolve_base_dir_falls_back_to_cwd PASSED        [ 30%]
+tests/test_cli.py::test_resolve_base_dir_explicit_overrides_cwd PASSED   [ 30%]
+tests/test_cli.py::test_sessions_with_missing_obo_sessions_dir PASSED    [ 31%]
+tests/test_cli.py::test_cancel_session_command PASSED                    [ 31%]
+tests/test_cli.py::test_cancel_session_with_reason PASSED                [ 31%]
+tests/test_cli.py::test_cancel_session_reports_open_items PASSED         [ 32%]
+tests/test_cli.py::test_cancel_session_unknown_file_returns_error PASSED [ 32%]
+tests/test_cli.py::test_trim_sessions_command_completed PASSED           [ 33%]
+tests/test_cli.py::test_trim_sessions_dry_run_output PASSED              [ 33%]
+tests/test_cli.py::test_trim_sessions_status_any PASSED                  [ 33%]
+tests/test_cli.py::test_trim_sessions_cancelled_status PASSED            [ 34%]
+tests/test_server.py::test_obo_create_returns_metadata PASSED            [ 34%]
+tests/test_server.py::test_obo_create_returns_completed_status_when_all_items_done PASSED [ 35%]
+tests/test_server.py::test_obo_create_updates_index PASSED               [ 35%]
+tests/test_server.py::test_obo_create_duplicate_returns_error PASSED     [ 35%]
+tests/test_server.py::test_obo_create_rejects_invalid_filename PASSED    [ 36%]
+tests/test_server.py::test_obo_create_without_items_creates_empty_session PASSED [ 36%]
+tests/test_server.py::test_obo_create_with_items_none_creates_empty_session PASSED [ 37%]
+tests/test_server.py::test_obo_list_sessions PASSED                      [ 37%]
+tests/test_server.py::test_obo_list_sessions_empty PASSED                [ 37%]
+tests/test_server.py::test_main_help_exits_without_starting_server PASSED [ 38%]
+tests/test_server.py::test_main_without_args_starts_server PASSED        [ 38%]
+tests/test_server.py::test_obo_session_status PASSED                     [ 39%]
+tests/test_server.py::test_obo_next_returns_highest_priority PASSED      [ 39%]
+tests/test_server.py::test_obo_next_no_items PASSED                      [ 39%]
+tests/test_server.py::test_obo_next_returns_deferred_when_review_queue_is_exhausted PASSED [ 40%]
+tests/test_server.py::test_obo_list_items_sorted PASSED                  [ 40%]
+tests/test_server.py::test_obo_list_items_filter PASSED                  [ 41%]
+tests/test_server.py::test_obo_get_item PASSED                           [ 41%]
+tests/test_server.py::test_obo_get_item_not_found PASSED                 [ 41%]
+tests/test_server.py::test_obo_mark_complete PASSED                      [ 42%]
+tests/test_server.py::test_obo_mark_complete_unknown_id PASSED           [ 42%]
+tests/test_server.py::test_obo_mark_skip PASSED                          [ 43%]
+tests/test_server.py::test_obo_mark_skip_no_reason PASSED                [ 43%]
+tests/test_server.py::test_obo_mark_blocked PASSED                       [ 43%]
+tests/test_server.py::test_obo_mark_in_progress PASSED                   [ 44%]
+tests/test_server.py::test_obo_update_field_score_recalculates PASSED    [ 44%]
+tests/test_server.py::test_obo_update_field_non_score PASSED             [ 45%]
+tests/test_server.py::test_obo_update_field_approval_mode PASSED         [ 45%]
+tests/test_server.py::test_obo_set_approval_defaults_to_immediate PASSED [ 45%]
+tests/test_server.py::test_obo_set_approval_delayed_sets_deferred PASSED [ 46%]
+tests/test_server.py::test_obo_set_approval_rejects_invalid_combination PASSED [ 46%]
+tests/test_server.py::test_obo_update_field_rejects_invalid_approval_mode PASSED [ 47%]
+tests/test_server.py::test_obo_update_field_unknown_id PASSED            [ 47%]
+tests/test_server.py::test_obo_update_field_rejects_invalid_status PASSED [ 47%]
+tests/test_server.py::test_obo_complete_session_rejects_actionable_items PASSED [ 48%]
+tests/test_server.py::test_obo_complete_session PASSED                   [ 48%]
+tests/test_server.py::test_obo_merge_items PASSED                        [ 49%]
+tests/test_server.py::test_obo_create_child_session PASSED               [ 49%]
+tests/test_server.py::test_obo_create_child_session_without_items PASSED [ 50%]
+tests/test_server.py::test_obo_complete_child_session PASSED             [ 50%]
+tests/test_server.py::test_obo_complete_child_session_cancelled_disposition PASSED [ 50%]
+tests/test_server.py::test_obo_complete_child_session_cancelled_allows_open_items PASSED [ 51%]
+tests/test_server.py::test_obo_complete_child_session_invalid_disposition FAILED [ 51%]
+tests/test_server.py::test_validate_base_dir_raises_for_missing_path PASSED [ 52%]
+tests/test_server.py::test_validate_base_dir_passes_for_existing_path PASSED [ 52%]
+tests/test_server.py::test_obo_create_returns_error_for_nonexistent_base_dir PASSED [ 52%]
+tests/test_server.py::test_obo_list_sessions_returns_error_for_nonexistent_base_dir PASSED [ 53%]
+tests/test_server.py::test_obo_session_status_returns_error_for_nonexistent_base_dir PASSED [ 53%]
+tests/test_server.py::test_obo_next_returns_error_for_nonexistent_base_dir PASSED [ 54%]
+tests/test_server.py::test_obo_cancel_session PASSED                     [ 54%]
+tests/test_server.py::test_obo_cancel_session_with_reason PASSED         [ 54%]
+tests/test_server.py::test_obo_cancel_session_reports_open_items PASSED  [ 55%]
+tests/test_server.py::test_obo_cancel_session_missing_file PASSED        [ 55%]
+tests/test_server.py::test_obo_trim_sessions_completed PASSED            [ 56%]
+tests/test_server.py::test_obo_trim_sessions_dry_run PASSED              [ 56%]
+tests/test_server.py::test_obo_trim_sessions_any_status PASSED           [ 56%]
+tests/test_session.py::test_recalc_priority_formula PASSED               [ 57%]
+tests/test_session.py::test_default_priority_score PASSED                [ 57%]
+tests/test_session.py::test_create_session_creates_file PASSED           [ 58%]
+tests/test_session.py::test_create_session_updates_index PASSED          [ 58%]
+tests/test_session.py::test_create_session_assigns_ids PASSED            [ 58%]
+tests/test_session.py::test_create_session_raises_if_exists PASSED       [ 59%]
+tests/test_session.py::test_create_session_calculates_priority PASSED    [ 59%]
+tests/test_session.py::test_create_session_accepts_blocked_item_status PASSED [ 60%]
+tests/test_session.py::test_create_session_accepts_deferred_item_status PASSED [ 60%]
+tests/test_session.py::test_create_session_rejects_invalid_filename PASSED [ 60%]
+tests/test_session.py::test_get_next_returns_highest_priority_pending PASSED [ 61%]
+tests/test_session.py::test_get_next_prefers_in_progress PASSED          [ 61%]
+tests/test_session.py::test_get_next_returns_none_when_all_done PASSED   [ 62%]
+tests/test_session.py::test_get_next_all_pending PASSED                  [ 62%]
+tests/test_session.py::test_get_next_skips_blocked_items PASSED          [ 62%]
+tests/test_session.py::test_get_next_returns_deferred_when_no_pending_items PASSED [ 63%]
+tests/test_session.py::test_get_next_raises_for_paused_parent PASSED     [ 63%]
+tests/test_session.py::test_mark_complete_sets_status PASSED             [ 64%]
+tests/test_session.py::test_mark_complete_updates_index PASSED           [ 64%]
+tests/test_session.py::test_mark_complete_raises_on_unknown_id PASSED    [ 64%]
+tests/test_session.py::test_mark_skip_sets_status PASSED                 [ 65%]
+tests/test_session.py::test_mark_skip_no_reason PASSED                   [ 65%]
+tests/test_session.py::test_mark_blocked_sets_status_and_blocker PASSED  [ 66%]
+tests/test_session.py::test_mark_blocked_updates_index PASSED            [ 66%]
+tests/test_session.py::test_mark_in_progress_sets_status PASSED          [ 66%]
+tests/test_session.py::test_mark_in_progress_updates_index PASSED        [ 67%]
+tests/test_session.py::test_update_field_recalculates_priority_on_score_change PASSED [ 67%]
+tests/test_session.py::test_update_field_importance_recalculates PASSED  [ 68%]
+tests/test_session.py::test_update_field_effort_recalculates PASSED      [ 68%]
+tests/test_session.py::test_update_field_non_score_no_recalc PASSED      [ 68%]
+tests/test_session.py::test_update_field_status_updates_index PASSED     [ 69%]
+tests/test_session.py::test_update_field_accepts_blocked_status PASSED   [ 69%]
+tests/test_session.py::test_update_field_accepts_deferred_status PASSED  [ 70%]
+tests/test_session.py::test_update_field_sets_approval_status PASSED     [ 70%]
+tests/test_session.py::test_update_field_sets_approval_mode_and_backfills_approval_status PASSED [ 70%]
+tests/test_session.py::test_update_field_rejects_invalid_approval_status PASSED [ 71%]
+tests/test_session.py::test_update_field_rejects_invalid_approval_mode PASSED [ 71%]
+tests/test_session.py::test_update_field_rejects_invalid_status PASSED   [ 72%]
+tests/test_session.py::test_set_approval_defaults_approved_items_to_immediate PASSED [ 72%]
+tests/test_session.py::test_set_approval_delayed_moves_item_to_deferred PASSED [ 72%]
+tests/test_session.py::test_set_approval_can_pair_denial_with_skipped_lifecycle PASSED [ 73%]
+tests/test_session.py::test_set_approval_rejects_mode_without_approved_status PASSED [ 73%]
+tests/test_session.py::test_update_field_raises_on_unknown_id PASSED     [ 74%]
+tests/test_session.py::test_list_items_sorted_by_priority PASSED         [ 74%]
+tests/test_session.py::test_list_items_status_filter PASSED              [ 75%]
+tests/test_session.py::test_session_status_counts PASSED                 [ 75%]
+tests/test_session.py::test_session_status_counts_blocked PASSED         [ 75%]
+tests/test_session.py::test_session_status_counts_deferred_and_approval PASSED [ 76%]
+tests/test_session.py::test_session_auto_completes_when_no_actionable_items PASSED [ 76%]
+tests/test_session.py::test_complete_session_rejects_blocked_items PASSED [ 77%]
+tests/test_session.py::test_complete_session_rejects_deferred_items PASSED [ 77%]
+tests/test_session.py::test_list_sessions_reads_index PASSED             [ 77%]
+tests/test_session.py::test_list_sessions_fallback_no_index PASSED       [ 78%]
+tests/test_session.py::test_list_sessions_status_filter_incomplete PASSED [ 78%]
+tests/test_session.py::test_list_sessions_status_filter_incomplete_includes_deferred_only PASSED [ 79%]
+tests/test_session.py::test_list_sessions_status_filter_completed PASSED [ 79%]
+tests/test_session.py::test_list_sessions_status_filter_paused PASSED    [ 79%]
+tests/test_session.py::test_list_sessions_status_filter_incomplete_includes_in_progress_only PASSED [ 80%]
+tests/test_session.py::test_create_child_session_pauses_parent_and_blocks_item PASSED [ 80%]
+tests/test_session.py::test_complete_child_session_resumes_parent PASSED [ 81%]
+tests/test_session.py::test_complete_child_session_requires_parent_metadata PASSED [ 81%]
+tests/test_session.py::test_complete_child_session_invalid_disposition_raises PASSED [ 81%]
+tests/test_session.py::test_complete_child_session_cancelled_does_not_require_all_items_done PASSED [ 82%]
+tests/test_session.py::test_complete_child_session_cancelled_unblocks_parent_item PASSED [ 82%]
+tests/test_session.py::test_complete_child_session_cancelled_stores_default_resolution_note PASSED [ 83%]
+tests/test_session.py::test_complete_child_session_cancelled_uses_resolution_as_note PASSED [ 83%]
+tests/test_session.py::test_complete_child_session_cancelled_stores_reason_on_child PASSED [ 83%]
+tests/test_session.py::test_obo_sessions_dir PASSED                      [ 84%]
+tests/test_session.py::test_resolve_session_file_absolute PASSED         [ 84%]
+tests/test_session.py::test_resolve_session_file_relative_with_base PASSED [ 85%]
+tests/test_session.py::test_resolve_session_file_relative_no_base PASSED [ 85%]
+tests/test_session.py::test_validate_session_filename_accepts_conforming_name PASSED [ 85%]
+tests/test_session.py::test_validate_session_filename_rejects_nonconforming_name PASSED [ 86%]
+tests/test_session.py::test_get_item_found PASSED                        [ 86%]
+tests/test_session.py::test_get_item_not_found PASSED                    [ 87%]
+tests/test_session.py::test_get_item_string_id PASSED                    [ 87%]
+tests/test_session.py::test_complete_session_raises_with_actionable_items PASSED [ 87%]
+tests/test_session.py::test_complete_session_succeeds_when_done PASSED   [ 88%]
+tests/test_session.py::test_merge_items_appends_and_reopens_completed_session PASSED [ 88%]
+tests/test_session.py::test_merge_items_rejects_duplicate_ids PASSED     [ 89%]
+tests/test_session.py::test_is_valid_index_good PASSED                   [ 89%]
+tests/test_session.py::test_is_valid_index_wrong_version PASSED          [ 89%]
+tests/test_session.py::test_is_valid_index_sessions_not_list PASSED      [ 90%]
+tests/test_session.py::test_is_valid_index_not_dict PASSED               [ 90%]
+tests/test_session.py::test_is_valid_index_missing_sessions_key PASSED   [ 91%]
+tests/test_session.py::test_rebuild_index_from_files PASSED              [ 91%]
+tests/test_session.py::test_rebuild_index_from_files_empty_dir PASSED    [ 91%]
+tests/test_session.py::test_rebuild_index_marks_unreadable_files PASSED  [ 92%]
+tests/test_session.py::test_list_sessions_corrupt_json_triggers_rebuild PASSED [ 92%]
+tests/test_session.py::test_list_sessions_wrong_format_version_triggers_rebuild PASSED [ 93%]
+tests/test_session.py::test_list_sessions_wrong_structure_triggers_rebuild PASSED [ 93%]
+tests/test_session.py::test_list_sessions_index_not_a_dict_triggers_rebuild PASSED [ 93%]
+tests/test_session.py::test_upsert_preserves_other_sessions_when_index_corrupt PASSED [ 94%]
+tests/test_session.py::test_upsert_repairs_wrong_format_version PASSED   [ 94%]
+tests/test_session.py::test_cancel_session_sets_status PASSED            [ 95%]
+tests/test_session.py::test_cancel_session_stores_cancelled_at PASSED    [ 95%]
+tests/test_session.py::test_cancel_session_stores_reason PASSED          [ 95%]
+tests/test_session.py::test_cancel_session_no_reason PASSED              [ 96%]
+tests/test_session.py::test_cancel_session_updates_index PASSED          [ 96%]
+tests/test_session.py::test_cancel_session_open_items_preserved PASSED   [ 97%]
+tests/test_session.py::test_sync_status_preserves_cancelled PASSED       [ 97%]
+tests/test_session.py::test_trim_sessions_deletes_completed PASSED       [ 97%]
+tests/test_session.py::test_trim_sessions_dry_run_does_not_delete PASSED [ 98%]
+tests/test_session.py::test_trim_sessions_before_filter PASSED           [ 98%]
+tests/test_session.py::test_trim_sessions_before_now_deletes_all_matching PASSED [ 99%]
+tests/test_session.py::test_trim_sessions_status_filter_none_matches_any PASSED [ 99%]
+tests/test_session.py::test_trim_sessions_rebuilds_index PASSED          [100%]
+
+=================================== FAILURES ===================================
+_____________ test_obo_complete_child_session_invalid_disposition ______________
+
+base_dir = '/tmp/pytest-of-warnes/pytest-4/test_obo_complete_child_sessio3'
+session_name = 'session_20260314_120000.json'
+
+    def test_obo_complete_child_session_invalid_disposition(base_dir, session_name):
+        obo_create_child_session(
+            parent_session_file=session_name,
+            title="X",
+            description="",
+            items=[{"title": "T"}],
+            base_dir=base_dir,
+            session_filename="session_20260314_166200.json",
+        )
+        result = obo_complete_child_session(
+            child_session_file="session_20260314_166200.json",
+            base_dir=base_dir,
+            disposition="skipped",
+        )
+        assert result.startswith("ERROR:")
+    
+    
+    
+        create_result = obo_create(
+            base_dir=base_dir,
+            title="Workflow Session",
+            description="agent flow",
+            items=[
+                {
+                    "id": "phase-1",
+                    "title": "Design",
+                    "urgency": 5,
+                    "importance": 5,
+                    "effort": 2,
+                    "dependencies": 2,
+                },
+                {
+                    "id": "phase-2",
+                    "title": "Build",
+                    "urgency": 3,
+                    "importance": 4,
+                    "effort": 3,
+                    "dependencies": 1,
+                },
+            ],
+            session_filename="session_20260314_170000.json",
+        )
+        created_session_name = json.loads(create_result)["session_file"]
+    
+        next_result = obo_next(
+            session_file=created_session_name,
+            base_dir=base_dir,
+        )
+        assert json.loads(next_result)["id"] == "phase-1"
+    
+        in_progress_result = obo_mark_in_progress(
+            session_file=created_session_name,
+            item_id="phase-1",
+            base_dir=base_dir,
+        )
+        assert json.loads(in_progress_result)["action"] == "in_progress"
+    
+        resumed_result = obo_next(
+            session_file=created_session_name,
+            base_dir=base_dir,
+        )
+        assert json.loads(resumed_result)["id"] == "phase-1"
+    
+        merge_result = obo_merge_items(
+            session_file=created_session_name,
+            items=[{"id": "phase-3", "title": "Verify"}],
+            base_dir=base_dir,
+        )
+        assert json.loads(merge_result)["merged_count"] == 1
+    
+        blocked_result = obo_mark_blocked(
+            session_file=created_session_name,
+            item_id="phase-2",
+            blocker="Waiting on design sign-off",
+            base_dir=base_dir,
+        )
+        assert json.loads(blocked_result)["action"] == "blocked"
+    
+        child_result = obo_create_child_session(
+            parent_session_file=created_session_name,
+            title="Design Sign-off",
+            description="resolve external blocker",
+            items=[{"title": "Get approval"}],
+            base_dir=base_dir,
+            session_filename="session_20260314_170500.json",
+        )
+        child_session_name = json.loads(child_result)["child_session_file"]
+    
+        paused_parent_next = obo_next(
+            session_file=created_session_name,
+            base_dir=base_dir,
+        )
+>       assert paused_parent_next.startswith("ERROR:")
+E       assert False
+E        +  where False = <built-in method startswith of str object at 0x73546c1997d0>('ERROR:')
+E        +    where <built-in method startswith of str object at 0x73546c1997d0> = '{\n  "status": "paused",\n  "message": "This session is paused while a child session is active. Work through the child session items, then call obo_complete_child_session to resume this parent session.",\n  "active_child_session": "session_20260314_170500.json",\n  "action_required": "Call obo_next with session_file=\'session_20260314_170500.json\' to continue work on the child session."\n}'.startswith
+
+tests/test_server.py:773: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_server.py::test_obo_complete_child_session_invalid_disposition
+======================== 1 failed, 247 passed in 2.32s =========================

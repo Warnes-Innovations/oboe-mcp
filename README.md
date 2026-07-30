@@ -12,7 +12,7 @@ Structured one-by-one workflows for coding agents.
 
 MCP server for durable one-by-one review workflows, with prioritized session state for coding agents.
 
-Provides 16 tools for creating, navigating, and resolving items in priority-scored session files, including blocked-item handling, first-class approval updates, and nested child sessions, so `/obo` workflows can use MCP operations instead of raw JSON edits.
+Provides 20 tools for creating, navigating, and resolving items in priority-scored session files, including blocked-item handling, first-class approval updates, and nested child sessions.
 
 Licensed under `AGPL-3.0-or-later` with commercial licensing available.
 See `LICENSE` for full terms.
@@ -52,10 +52,10 @@ Global options:
 | Option | Description |
 | ------ | ----------- |
 | `--session SESSION`, `-s` | Session filename (e.g. `session_20260411_120000.json`) or absolute path |
-| `--base-dir DIR`, `-b` | Project root containing `.github/obo_sessions/` (defaults to CWD detection) |
+| `--base-dir DIR`, `-b` | Project root containing `.github/oboe_sessions/` (defaults to CWD detection) |
 
 **Base-dir auto-detection**: when `--base-dir` is omitted, `oboe-cli` uses the
-current working directory if it contains a `.github/obo_sessions/` folder,
+current working directory if it contains a `.github/oboe_sessions/` folder,
 otherwise it falls back to the working directory as-is.
 
 ### Commands
@@ -98,7 +98,7 @@ oboe-cli --base-dir /path/to/project --session session_20260411_120000.json \
     complete 1 "Fixed the validation bug"
 ```
 
-> **Note:** the `obo_helper.py` script shipped in previous versions is now a
+> **Note:** the `oboe_helper.py` script shipped in previous versions is now a
 > thin deprecation shim that delegates to `oboe-cli`.
 
 
@@ -106,22 +106,38 @@ oboe-cli --base-dir /path/to/project --session session_20260411_120000.json \
 
 | Tool | Description |
 | ---- | ----------- |
-| `obo_create` | Create session file + update index.json atomically |
-| `obo_list_sessions` | List sessions from index.json |
-| `obo_session_status` | Summary stats for a session |
-| `obo_next` | Next item: in_progress first, then highest-priority pending, then deferred |
-| `obo_list_items` | All items sorted by priority_score desc |
-| `obo_get_item` | Full detail for one item |
-| `obo_mark_blocked` | Mark an item blocked and store blocker information |
-| `obo_mark_complete` | Mark item completed with resolution text |
-| `obo_mark_in_progress` | Mark item in progress |
-| `obo_mark_skip` | Mark item skipped |
-| `obo_set_approval` | Set approval metadata and optional lifecycle state |
-| `obo_complete_session` | Mark a session completed when no actionable items remain |
-| `obo_create_child_session` | Create a child session, pause the parent, and step into the child |
-| `obo_complete_child_session` | Complete a child session and resume the parent |
-| `obo_merge_items` | Append new items to an existing session and reactivate it |
-| `obo_update_field` | Update any field; auto-recalculates priority_score |
+| `oboe_create` | Create session file + update index.json atomically |
+| `oboe_list_sessions` | List sessions from index.json |
+| `oboe_session_status` | Summary stats for a session |
+| `oboe_next` | Next item: in_progress first, then highest-priority pending, then deferred |
+| `oboe_list_items` | All items sorted by priority_score desc |
+| `oboe_get_item` | Full detail for one item |
+| `oboe_mark_blocked` | Mark an item blocked and store blocker information |
+| `oboe_mark_complete` | Mark item completed with resolution text |
+| `oboe_mark_in_progress` | Mark item in progress |
+| `oboe_mark_skip` | Mark item skipped |
+| `oboe_set_approval` | Set approval metadata and optional lifecycle state |
+| `oboe_complete_session` | Mark a session completed when no actionable items remain |
+| `oboe_create_child_session` | Create a child session, pause the parent, and step into the child |
+| `oboe_complete_child_session` | Complete a child session and resume the parent |
+| `oboe_merge_items` | Append new items to an existing session and reactivate it |
+| `oboe_get_session` | Session header fields: title, status, parent/child refs |
+| `oboe_mark_deferred` | Mark an item deferred with optional reason and deferred_until |
+| `oboe_update_field` | Update any field; auto-recalculates priority_score |
+| `oboe_cancel_session` | Cancel a session, recording an optional reason |
+| `oboe_trim_sessions` | Delete old sessions by age and/or status |
+
+> **Migration from `obo_` tool names (pre-0.3.0):** All MCP tools were renamed
+> from `obo_*` to `oboe_*` in v0.3.0. The session directory was also renamed
+> from `.github/obo_sessions/` to `.github/oboe_sessions/` (a backward-compat
+> symlink is created automatically). Run the bundled migration script to update
+> existing projects:
+>
+> ```bash
+> bash <(uvx --from oboe-mcp cat inst/migrate-to-oboe.sh) /path/to/your/project
+> # or, from a local checkout:
+> bash inst/migrate-to-oboe.sh /path/to/your/project
+> ```
 
 ## Why OBO Sessions
 
@@ -171,8 +187,8 @@ Approval metadata fields:
 
 Common pairings:
 
-- Approve Immediate: call `obo_set_approval(..., approval_status="approved", approval_mode="immediate")`; the item normally remains `pending` until work begins or is moved to `in_progress`
-- Approve Delayed: call `obo_set_approval(..., approval_status="approved", approval_mode="delayed")`; this records delayed approval and moves the item to `deferred`
+- Approve Immediate: call `oboe_set_approval(..., approval_status="approved", approval_mode="immediate")`; the item normally remains `pending` until work begins or is moved to `in_progress`
+- Approve Delayed: call `oboe_set_approval(..., approval_status="approved", approval_mode="delayed")`; this records delayed approval and moves the item to `deferred`
 - Deny: set `approval_status=denied`; if the item is being closed out of the queue, pair it with `status=skipped`
 
 ## Interaction Modes
@@ -182,7 +198,7 @@ The three common interaction patterns are plain chat, a structured question tool
 | Standard chat | askQuestions style interaction | One-by-One session |
 | --- | --- | --- |
 | Best for small, fast back-and-forth tasks where the state can stay in the conversation. | Best when the agent needs the user to choose from a short set of options in the current turn. | Best when work involves multiple findings or decisions that must be tracked, resumed, reordered, blocked, nested, or approved one item at a time. |
-| State is mostly conversational and can become hard to recover after a long session. | State is still mostly conversational; the question tool improves input quality but does not provide durable workflow state by itself. | State is persisted to `.github/obo_sessions/`, so another session or another agent can resume cleanly with explicit item and session status. |
+| State is mostly conversational and can become hard to recover after a long session. | State is still mostly conversational; the question tool improves input quality but does not provide durable workflow state by itself. | State is persisted to `.github/oboe_sessions/`, so another session or another agent can resume cleanly with explicit item and session status. |
 | Good example: "rename this function" or "explain this error". | Good example: "resume, merge, replace, or stop?" | Good example: "review these 12 findings one by one and wait for approval on each". |
 | Main benefit: lowest friction. | Main benefit: clearer user decisions and fewer ambiguous replies. | Main benefit: durable queue management, explicit blockers, nested sub-sessions, and deterministic recovery across many items. |
 
@@ -493,7 +509,7 @@ If you want clients to install `oboe-mcp` from PyPI instead of a local checkout,
 
 ### Manual Installation
 
-Install the MCP server first so your agent can call the `obo_*` tools. Then install the shared OBO instructions so your agent knows when to use those tools and how to follow the workflow correctly.
+Install the MCP server first so your agent can call the `oboe_*` tools. Then install the shared OBO instructions so your agent knows when to use those tools and how to follow the workflow correctly.
 
 If you are wiring up an MCP config by hand, point it at either your local checkout or the published PyPI package.
 
@@ -525,7 +541,7 @@ This repository includes reusable templates under `templates/agent-setup/`:
 - `templates/agent-setup/AGENTS.md`
 - `templates/agent-setup/CLAUDE.md`
 
-Registering `oboe-mcp` only exposes the `obo_*` tools. It does not by itself guarantee the overview-first, dependency-aware, one-item-at-a-time workflow shown in the toy example above. To make agent behavior reliable, install both parts:
+Registering `oboe-mcp` only exposes the `oboe_*` tools. It does not by itself guarantee the overview-first, dependency-aware, one-item-at-a-time workflow shown in the toy example above. To make agent behavior reliable, install both parts:
 
 - the MCP server registration, so the agent can call the tools
 - the shared OBO instructions, so the agent knows when to switch from plain chat or a simple question tool into a real OBO session
@@ -573,13 +589,13 @@ The `templates/agent-setup/copilot/` folder in this repository is only the sourc
 
 The Copilot instruction template tells agents to:
 
-- avoid direct edits to `.github/obo_sessions/*.json`
+- avoid direct edits to `.github/oboe_sessions/*.json`
 - use OBO when the user asks for one-by-one handling, when multiple findings need explicit sequential approval, or when resumable queue state is needed
-- use `obo_list_sessions`, `obo_create`, `obo_merge_items`, `obo_next`,
-  `obo_mark_in_progress`, `obo_mark_blocked`, `obo_mark_complete`,
-  `obo_mark_skip`, `obo_create_child_session`,
-  `obo_complete_child_session`, `obo_session_status`, and
-  `obo_complete_session`
+- use `oboe_list_sessions`, `oboe_create`, `oboe_merge_items`, `oboe_next`,
+  `oboe_mark_in_progress`, `oboe_mark_blocked`, `oboe_mark_complete`,
+  `oboe_mark_skip`, `oboe_create_child_session`,
+  `oboe_complete_child_session`, `oboe_session_status`, and
+  `oboe_complete_session`
 - use a structured question tool for predefined OBO choices such as resume, merge, replace, approval, navigation, reorder, restore, and stop
 - ask the user whether to resume, merge, replace, or stop when an active session already exists
 - only fall back to plain text when the structured question tool is unavailable, failing, or the response truly must be freeform, and explicitly state that reason
@@ -590,7 +606,7 @@ The packaged skill provides the trigger logic for when OBO should be used, and t
 
 When VS Code connects to a remote host (SSH, Dev Container, or Codespaces), **user-level MCP servers are launched on the local machine**, not on the remote host. This means oboe-mcp will run locally and try to open workspace paths on the local filesystem — but those paths exist only on the remote host.
 
-**Symptom:** tool calls like `obo_list_sessions(base_dir="/home/user/project")` return an error such as:
+**Symptom:** tool calls like `oboe_list_sessions(base_dir="/home/user/project")` return an error such as:
 
 ```
 ERROR: base_dir does not exist: /home/user/project
@@ -641,7 +657,7 @@ Then copy or merge `templates/agent-setup/AGENTS.md` into the target repository 
 The packaged `AGENTS.md` template tells Codex to:
 
 - switch from normal chat into OBO when the work needs durable queue state, explicit sequential approval, reordering, blocker tracking, or nested child sessions
-- start with `obo_list_sessions` and ask whether to resume, merge, replace, or stop when an incomplete session already exists
+- start with `oboe_list_sessions` and ask whether to resume, merge, replace, or stop when an incomplete session already exists
 - begin each OBO session with an overview of scope, dependencies, and proposed order instead of jumping straight into the first item
 - use the MCP tools as the source of truth for session state rather than editing session JSON directly
 - use the agent's structured question UI/tool by default for predefined OBO menus and explain any plain-text fallback
@@ -714,7 +730,7 @@ The installed Cline guidance should tell the agent to:
 - use OBO when work needs persistent queue state rather than a one-turn menu
 - start with a summary and proposed order before presenting the first item
 - update the stored session after each approval, skip, block, or completion
-- avoid direct edits to `.github/obo_sessions/*.json` and `index.json`
+- avoid direct edits to `.github/oboe_sessions/*.json` and `index.json`
 - use Cline's structured question UI/tool by default for predefined OBO menus and explain any plain-text fallback
 
 #### Other Agents
@@ -729,11 +745,11 @@ The goal is to reproduce the same behavior described earlier in this README:
 
 Minimal rule set to reuse across agents:
 
-- Never directly edit `.github/obo_sessions/*.json` or `index.json`.
-- Start with `obo_list_sessions`.
+- Never directly edit `.github/oboe_sessions/*.json` or `index.json`.
+- Start with `oboe_list_sessions`.
 - If an incomplete session exists, use a structured question tool when
   available to ask whether to resume, merge, replace, or stop.
-- Use `obo_create` for new sessions and `obo_merge_items` to append findings.
+- Use `oboe_create` for new sessions and `oboe_merge_items` to append findings.
 - Start OBO work with an overview of scope, item ordering, and major
   dependencies.
 - Use a structured question tool by default for predefined OBO menus such as
@@ -742,12 +758,12 @@ Minimal rule set to reuse across agents:
   tool is failing, or the response truly must be open-ended, and say why.
 - Present one item at a time and wait for explicit user approval before moving
   on.
-- Use `obo_next` to choose work, `obo_mark_in_progress` when starting,
-  `obo_mark_blocked` when progress is blocked, and `obo_mark_complete` or
-  `obo_mark_skip` when resolving items.
-- Use `obo_create_child_session` to step into nested sub-work and
-  `obo_complete_child_session` to resume the parent session.
-- Use `obo_session_status` or `obo_list_items` to inspect state.
-- Use `obo_complete_session` when no actionable items remain.
+- Use `oboe_next` to choose work, `oboe_mark_in_progress` when starting,
+  `oboe_mark_blocked` when progress is blocked, and `oboe_mark_complete` or
+  `oboe_mark_skip` when resolving items.
+- Use `oboe_create_child_session` to step into nested sub-work and
+  `oboe_complete_child_session` to resume the parent session.
+- Use `oboe_session_status` or `oboe_list_items` to inspect state.
+- Use `oboe_complete_session` when no actionable items remain.
 
 Session file paths, filename rules, JSON fields, status semantics, priority scoring, and the `index.json` summary format are documented in [docs/SESSION_FORMAT.md](/Users/warnes/src/oboe-mcp/docs/SESSION_FORMAT.md).
