@@ -16,18 +16,14 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
 
 ## [Unreleased]
 
-### Changed
-
-- Migrated to MCP Python SDK 2.0 (`mcp>=2.0,<3`): `FastMCP` renamed to `MCPServer` in `server.py`; `pyproject.toml`/`uv.lock` updated accordingly. Tool decorator API, `mcp.run()`, and all tool registrations are unaffected.
-
-## [0.3.0] - 2026-04-22
+## [0.3.0] - 2026-07-31
 
 ### Breaking Changes
 
 - **All MCP tool names renamed from `obo_*` to `oboe_*`** to match the package
   name (`oboe-mcp`) and CLI name (`oboe-cli`). Existing agent instruction files,
   prompts, and skill definitions that reference `obo_create`, `obo_next`, etc.
-  must be updated. Run `inst/migrate-to-oboe.sh` (see below) to automate this.
+  must be updated. Run `oboe-mcp migrate` (see below) to automate this.
 
 - **Session directory renamed from `.github/obo_sessions/` to
   `.github/oboe_sessions/`**. A backward-compatible symlink
@@ -41,11 +37,18 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
 # From PyPI (no install required)
 uvx oboe-mcp migrate /path/to/your/project
 
-# Or run the script directly from a local checkout
-bash inst/migrate-to-oboe.sh /path/to/your/project
+# Preview without changing anything
+uvx oboe-mcp migrate /path/to/your/project --dry-run
+
+# Or from a local checkout, with no dependencies installed
+python -m oboe_mcp.migrate /path/to/your/project
 ```
 
-The script:
+The migration is pure Python and imports only the standard library, so it
+works from a plain `pip`/`uvx` install or a bare source checkout — no bash,
+perl, or MCP SDK required.
+
+It:
 1. Renames `.github/obo_sessions/` → `.github/oboe_sessions/` and creates a
    `obo_sessions` symlink for backward compatibility.
 2. Updates all agent instruction files (`.github/copilot-instructions.md`,
@@ -55,6 +58,24 @@ The script:
 
 ### Added
 
+- **Cross-process concurrency control for session storage.** Session files are
+  shared between the MCP server, `oboe-cli`, and any other process pointed at
+  the same project. All reads and writes now go through a cross-process
+  reader/writer lock over the sessions directory, and every write is atomic
+  (temp file + `os.replace`). This closes six races that could previously lose
+  data: lost updates, reading a truncated file mid-write, the session file and
+  `index.json` disagreeing, a creation TOCTOU, index-rebuild races, and
+  deletion races in `trim_sessions`. Readers take a shared lock and still run
+  in parallel. No new runtime dependencies.
+- **Caller-selectable lock policy.** The default is to wait up to 30s and then
+  raise an error naming the lock file and its holder. Callers preferring to
+  retry rather than stall can choose fail-fast, via the new
+  `oboe_set_lock_policy` / `oboe_get_lock_policy` MCP tools, the
+  `--lock-timeout` / `--lock-fail-fast` CLI flags, or the `OBOE_LOCK_POLICY` /
+  `OBOE_LOCK_TIMEOUT` environment variables. See the *Concurrency* section of
+  `README.md`.
+- `CONTRIBUTING.md`, documenting the branch model, worktree convention, test
+  commands, and release confirmation boundaries.
 - New MCP tools: `oboe_get_session`, `oboe_mark_deferred`, `oboe_cancel_session`,
   `oboe_trim_sessions`.
 - `oboe_next`: `mark_in_progress` param marks item in-progress atomically;
@@ -69,7 +90,10 @@ The script:
 
 ### Changed
 
-- Server module docstring updated to reflect 20 tools.
+- Migrated to MCP Python SDK 2.0 (`mcp>=2.0,<3`): `FastMCP` renamed to
+  `MCPServer` in `server.py`; `pyproject.toml`/`uv.lock` updated accordingly.
+  Tool decorator API, `mcp.run()`, and all tool registrations are unaffected.
+- Server module docstring updated to reflect 22 tools.
 - `_open_count` import moved from inline (inside `oboe_cancel_session`) to the
   module-level import block.
 - `obo_set_approval` parameter `note` → `approval_note`.
@@ -77,6 +101,36 @@ The script:
 - `obo_create` / `obo_create_child_session` parameter `session_filename` →
   `session_file`.
 - `oboe-cli approve`: `--mode` → `--approval-mode`, `--note` → `--approval-note`.
+
+### Fixed
+
+- **`__version__` no longer disagrees with the packaged version.**
+  `src/oboe_mcp/__init__.py` was left at `0.1.2` when `pyproject.toml` moved to
+  `0.2.0`, so the released 0.2.0 reported `oboe_mcp.__version__ == "0.1.2"`.
+  Both sources are now `0.3.0` and must be updated together.
+- **The migration now works at all, and works everywhere.** It was previously
+  a shell script, `inst/migrate-to-oboe.sh`, with two independent defects.
+  It was not packaged — shipping in neither the sdist nor the wheel — so
+  nobody who installed from PyPI had a copy, while the documented
+  `uvx oboe-mcp migrate` command did not exist. And it relied on three
+  GNU/bash-4 constructs absent from a stock macOS (`declare -A` — macOS ships
+  bash 3.2 — GNU `sed -i EXPR` with `\b`, and `md5sum`), aborting *after*
+  renaming the session directory but *before* rewriting any instruction file,
+  which left projects half-migrated.
+
+  The migration is now pure Python in `oboe_mcp.migrate`, ships in the wheel,
+  and is covered by tests. The shell script has been removed rather than
+  fixed: a second implementation of the same rewrite rules can only drift,
+  and anyone able to run oboe-mcp already has Python.
+
+### Security
+
+- **Pinned every GitHub Actions dependency to a commit SHA.** `publish.yml`
+  used the mutable branch ref `pypa/gh-action-pypi-publish@release/v1` plus
+  floating major tags in jobs holding `id-token: write` (PyPI Trusted
+  Publishing); `codeql.yml` floated likewise while holding
+  `security-events: write`. A repointed ref could have injected code into a
+  workflow carrying live publish credentials.
 
 ## [0.2.0] - 2026-04-11
 

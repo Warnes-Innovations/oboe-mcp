@@ -15,12 +15,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Sequence
 
 from mcp.server.mcpserver import MCPServer
 
+from oboe_mcp.migrate import format_result, migrate_project
 from oboe_mcp.locking import (
     DEFAULT_TIMEOUT,
     LockError,
@@ -1001,22 +1003,61 @@ def oboe_get_lock_policy() -> str:
 # ---------------------------------------------------------------------------
 
 def _build_parser() -> argparse.ArgumentParser:
-    """Build the CLI parser for the console entry point."""
+    """Build the CLI parser for the console entry point.
+
+    Running ``oboe-mcp`` with no subcommand starts the stdio server, which is
+    how MCP clients invoke it.  Subcommands are therefore optional and must
+    never become required.
+    """
     parser = argparse.ArgumentParser(
         prog="oboe-mcp",
         description=(
             "Run the Oboe MCP stdio server for one-by-one session "
-            "management tools."
+            "management tools. With no subcommand, starts the server."
         ),
     )
+    sub = parser.add_subparsers(dest="command", metavar="COMMAND")
+
+    migrate_parser = sub.add_parser(
+        "migrate",
+        help="Migrate a project from obo_ tool names to oboe_ (v0.3.0+)",
+        description=(
+            "Rewrite a project's agent instruction files and session "
+            "directory from the pre-0.3.0 obo_ names to oboe_. Safe to run "
+            "more than once."
+        ),
+    )
+    migrate_parser.add_argument(
+        "project_root",
+        nargs="?",
+        default=".",
+        help="Project root to migrate (default: current directory)",
+    )
+    migrate_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Report what would change without modifying anything",
+    )
+
     return parser
 
 
-def main(argv: Sequence[str] | None = None) -> None:
-    """Run the MCP server CLI entry point."""
-    _build_parser().parse_args(argv)
+def main(argv: Sequence[str] | None = None) -> int:
+    """Run the MCP server, or a subcommand if one was given."""
+    args = _build_parser().parse_args(argv)
+
+    if getattr(args, "command", None) == "migrate":
+        try:
+            result = migrate_project(args.project_root, dry_run=args.dry_run)
+        except (OSError, ValueError) as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+        print(format_result(result))
+        return 0
+
     mcp.run()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
