@@ -130,13 +130,17 @@ oboe-cli --base-dir /path/to/project --session session_20260411_120000.json \
 > **Migration from `obo_` tool names (pre-0.3.0):** All MCP tools were renamed
 > from `obo_*` to `oboe_*` in v0.3.0. The session directory was also renamed
 > from `.github/obo_sessions/` to `.github/oboe_sessions/` (a backward-compat
-> symlink is created automatically). Run the bundled migration script to update
+> symlink is created automatically). Run the bundled migration to update
 > existing projects:
 >
 > ```bash
-> bash <(uvx --from oboe-mcp cat inst/migrate-to-oboe.sh) /path/to/your/project
+> uvx oboe-mcp migrate /path/to/your/project
+>
+> # preview first, changing nothing:
+> uvx oboe-mcp migrate /path/to/your/project --dry-run
+>
 > # or, from a local checkout:
-> bash inst/migrate-to-oboe.sh /path/to/your/project
+> python -m oboe_mcp.migrate /path/to/your/project
 > ```
 
 ## Why OBO Sessions

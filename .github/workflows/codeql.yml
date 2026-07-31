@@ -28,13 +28,20 @@ jobs:
       fail-fast: false
 
     steps:
+      # SHA-pinned rather than tag-pinned: this job holds
+      # `security-events: write`, so a repointed tag could write attacker-chosen
+      # findings into the repository's security tab.
+      #
+      # All three run on node24. Node 20 is deprecated on GitHub runners, and
+      # CodeQL Action v3 is slated for removal in December 2026; both were
+      # flagged as warnings on this workflow before these pins were raised.
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4.37.4
         with:
           languages: python
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4.37.4
