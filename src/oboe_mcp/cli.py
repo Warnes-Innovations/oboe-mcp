@@ -21,6 +21,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Sequence
 
+from oboe_mcp.locking import (
+    DEFAULT_TIMEOUT,
+    LockError,
+    get_default_policy,
+    set_default_policy,
+)
 from oboe_mcp.session import (
     cancel_session,
     complete_child_session,
@@ -234,6 +240,29 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="DIR",
         default=None,
         help="Project root for .github/oboe_sessions/ (overrides CWD detection)",
+    )
+
+    lock_group = parser.add_argument_group(
+        "concurrency",
+        "Behaviour when another process holds the session lock. "
+        "Defaults may also be set via OBOE_LOCK_POLICY / OBOE_LOCK_TIMEOUT.",
+    )
+    lock_group.add_argument(
+        "--lock-timeout",
+        metavar="SECONDS",
+        default=None,
+        help=(
+            f"Seconds to wait for the session lock "
+            f"(default {DEFAULT_TIMEOUT:g}; 'none' waits indefinitely)"
+        ),
+    )
+    lock_group.add_argument(
+        "--lock-fail-fast",
+        action="store_true",
+        help=(
+            "Fail immediately instead of waiting when the session lock is "
+            "held by another process"
+        ),
     )
 
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
@@ -892,6 +921,38 @@ _COMMAND_DISPATCH = {
     "trim-sessions":   _cmd_trim_sessions,
 }
 
+def _apply_lock_policy(args: argparse.Namespace) -> None:
+    """Translate the concurrency flags into the process lock policy.
+
+    Flags win over the environment; when neither is given, the policy built
+    from OBOE_LOCK_POLICY / OBOE_LOCK_TIMEOUT is left in place.
+    """
+    current = get_default_policy()
+    blocking = not args.lock_fail_fast if args.lock_fail_fast else current.blocking
+    timeout = current.timeout
+
+    raw = getattr(args, "lock_timeout", None)
+    if raw is not None:
+        cleaned = str(raw).strip().lower()
+        if cleaned in {"none", "never", "infinite", ""}:
+            timeout = None
+        else:
+            try:
+                parsed = float(cleaned)
+            except ValueError:
+                raise ValueError(
+                    f"--lock-timeout must be a number of seconds or 'none', "
+                    f"got {raw!r}"
+                )
+            if parsed <= 0:
+                raise ValueError(
+                    f"--lock-timeout must be greater than zero, got {raw!r}"
+                )
+            timeout = parsed
+
+    set_default_policy(blocking=blocking, timeout=timeout)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args   = parser.parse_args(argv)
@@ -906,10 +967,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
 
     try:
+        _apply_lock_policy(args)
+    except ValueError as exc:
+        print(f"❌ {exc}", file=sys.stderr)
+        return 1
+
+    try:
         return handler(args, parser)
     except FileNotFoundError as exc:
         fname = exc.filename or str(exc)
         print(f"❌ Session file not found: {fname}", file=sys.stderr)
+        return 1
+    except LockError as exc:
+        print(f"❌ {exc}", file=sys.stderr)
         return 1
 
 

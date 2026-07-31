@@ -14,8 +14,11 @@ relative to {base_dir}/.github/oboe_sessions/.
 
 import json
 import re
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+
+from .locking import atomic_write_json, sessions_lock
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -103,13 +106,66 @@ def resolve_session_file(
 # ---------------------------------------------------------------------------
 
 def load_session(session_file: Path) -> dict:
+    """Read a session file.
+
+    Callers that will subsequently write must hold the exclusive lock across
+    the whole read-modify-write cycle — use :func:`session_transaction` rather
+    than pairing this with :func:`save_session` by hand.  Called on its own it
+    takes a shared lock, so it never observes a partially-written file.
+    """
+    session_file = Path(session_file)
+    with sessions_lock(session_file.parent, exclusive=False):
+        return _load_session_unlocked(session_file)
+
+
+def _load_session_unlocked(session_file: Path) -> dict:
+    """Read a session file assuming the caller already holds the lock."""
     with open(session_file, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
 def save_session(session_file: Path, session: dict) -> None:
-    with open(session_file, "w", encoding="utf-8") as f:
-        json.dump(session, f, indent=2)
+    """Write a session file atomically.
+
+    Kept for callers that manage their own locking; the write itself is atomic
+    either way, so a concurrent reader never sees a truncated file.
+    """
+    session_file = Path(session_file)
+    with sessions_lock(session_file.parent, exclusive=True):
+        atomic_write_json(session_file, session)
+
+
+# ---------------------------------------------------------------------------
+# Transactions
+# ---------------------------------------------------------------------------
+
+@contextmanager
+def session_transaction(session_file: Path):
+    """Hold the sessions-directory lock across a read-modify-write cycle.
+
+    Loads and normalizes the session, yields it for mutation, then writes the
+    session file and updates ``index.json`` — all under one exclusive lock, so
+    the pair cannot be observed or interleaved half-applied.
+
+    The session status is *not* synced automatically; callers that need
+    :func:`_sync_session_status` call it before the block exits, matching the
+    previous hand-written ordering.
+
+    Raises:
+        LockBusy / LockTimeout: per the active lock policy.
+    """
+    session_file = Path(session_file)
+    with sessions_lock(session_file.parent, exclusive=True):
+        session = _load_session_unlocked(session_file)
+        _normalize_existing_items(session)
+        yield session
+        _write_session_and_index(session_file, session)
+
+
+def _write_session_and_index(session_file: Path, session: dict) -> None:
+    """Commit a session plus its index row.  Caller must hold the lock."""
+    atomic_write_json(session_file, session)
+    _upsert_index(session_file.parent, session, session_file.name)
 
 
 # ---------------------------------------------------------------------------
@@ -227,6 +283,12 @@ def _is_valid_index(index: object) -> bool:
 
 
 def load_index(sessions_dir: Path) -> dict:
+    """Read index.json, taking a shared lock unless one is already held."""
+    with sessions_lock(sessions_dir, exclusive=False):
+        return _load_index_unlocked(sessions_dir)
+
+
+def _load_index_unlocked(sessions_dir: Path) -> dict:
     idx_path = _index_path(sessions_dir)
     if idx_path.exists():
         with open(idx_path, encoding="utf-8") as f:
@@ -235,9 +297,9 @@ def load_index(sessions_dir: Path) -> dict:
 
 
 def _save_index(sessions_dir: Path, index: dict) -> None:
+    """Write index.json atomically.  Caller is expected to hold the lock."""
     index["last_updated"] = datetime.now().isoformat()
-    with open(_index_path(sessions_dir), "w", encoding="utf-8") as f:
-        json.dump(index, f, indent=2)
+    atomic_write_json(_index_path(sessions_dir), index)
 
 
 def _pending_count(session: dict) -> int:
@@ -321,11 +383,15 @@ def _sync_session_status(session: dict) -> str:
 
 
 def _rebuild_index_from_files(sessions_dir: Path) -> dict:
-    """Scan all session_*.json files and return a fresh index dict."""
+    """Scan all session_*.json files and return a fresh index dict.
+
+    Caller must hold the sessions lock; the scan reads every session file and
+    would otherwise produce a mixed-time snapshot under concurrent writes.
+    """
     rows = []
     for sf in sorted(sessions_dir.glob("session_*.json")):
         try:
-            s = load_session(sf)
+            s = _load_session_unlocked(sf)
             rows.append({
                 "file": sf.name,
                 "title": s.get("title", sf.stem),
@@ -367,9 +433,12 @@ def _upsert_index(
 
     Automatically repairs a missing, corrupt, or structurally invalid index by
     rebuilding it from the session files on disk before applying the update.
+
+    Caller must hold the exclusive sessions lock — this is a read-modify-write
+    on index.json and is always paired with a session-file write.
     """
     try:
-        index = load_index(sessions_dir)
+        index = _load_index_unlocked(sessions_dir)
         if not _is_valid_index(index):
             raise ValueError("Invalid index structure")
     except (json.JSONDecodeError, ValueError):
@@ -412,36 +481,41 @@ def create_session(
 ) -> dict:
     """Create a new session file and update index.json atomically.
 
+    The existence check and the write happen under one exclusive lock, so two
+    processes cannot both pass the check and race to create the same file.
+
     Raises FileExistsError if the session file already exists.
     """
     validate_session_filename(session_file.name)
 
-    if session_file.exists():
-        raise FileExistsError(f"Session file already exists: {session_file}")
-
     session_file.parent.mkdir(parents=True, exist_ok=True)
 
-    normalized = [
-        _normalize_item(dict(item), idx)
-        for idx, item in enumerate(items, start=1)
-    ]
+    with sessions_lock(session_file.parent, exclusive=True):
+        if session_file.exists():
+            raise FileExistsError(
+                f"Session file already exists: {session_file}"
+            )
 
-    session = {
-        "session_file": session_file.name,
-        "created": datetime.now().isoformat(),
-        "title": title or session_file.stem,
-        "description": description,
-        "status": "active",
-        "parent_session_file": parent_session_file,
-        "parent_item_id": parent_item_id,
-        "child_session_files": [],
-        "active_child_session": None,
-        "items": normalized,
-    }
+        normalized = [
+            _normalize_item(dict(item), idx)
+            for idx, item in enumerate(items, start=1)
+        ]
 
-    _sync_session_status(session)
-    save_session(session_file, session)
-    _upsert_index(session_file.parent, session, session_file.name)
+        session = {
+            "session_file": session_file.name,
+            "created": datetime.now().isoformat(),
+            "title": title or session_file.stem,
+            "description": description,
+            "status": "active",
+            "parent_session_file": parent_session_file,
+            "parent_item_id": parent_item_id,
+            "child_session_files": [],
+            "active_child_session": None,
+            "items": normalized,
+        }
+
+        _sync_session_status(session)
+        _write_session_and_index(session_file, session)
     return session
 
 
@@ -460,20 +534,23 @@ def list_sessions(
     idx_path = _index_path(sessions_dir)
 
     rows = None  # None signals that a rebuild is needed
-    if idx_path.exists():
-        try:
-            index = load_index(sessions_dir)
-            if _is_valid_index(index):
-                rows = index["sessions"]
-        except (json.JSONDecodeError, ValueError):
-            rows = None  # corrupt index – fall through to rebuild
+    with sessions_lock(sessions_dir, exclusive=False):
+        if idx_path.exists():
+            try:
+                index = _load_index_unlocked(sessions_dir)
+                if _is_valid_index(index):
+                    rows = index["sessions"]
+            except (json.JSONDecodeError, ValueError):
+                rows = None  # corrupt index – fall through to rebuild
 
     if rows is None:
-        # Slow path: scan files, rebuild index
-        rebuilt = _rebuild_index_from_files(sessions_dir)
-        rows = rebuilt["sessions"]
-        if rows:
-            _save_index(sessions_dir, rebuilt)
+        # Slow path: scan files and repair the index.  This writes, so it
+        # needs the exclusive lock rather than the reader lock above.
+        with sessions_lock(sessions_dir, exclusive=True):
+            rebuilt = _rebuild_index_from_files(sessions_dir)
+            rows = rebuilt["sessions"]
+            if rows:
+                _save_index(sessions_dir, rebuilt)
 
     # Apply status filter
     if status_filter == "active":
@@ -636,15 +713,12 @@ def mark_complete(
     resolution: str,
 ) -> dict:
     """Mark an item completed with resolution text. Returns updated session."""
-    session = load_session(session_file)
-    _normalize_existing_items(session)
-    item = _require_item(session, item_id)
-    item["status"] = "completed"
-    item["resolution"] = resolution
-    _clear_blocker_fields(item)
-    _sync_session_status(session)
-    save_session(session_file, session)
-    _upsert_index(session_file.parent, session, session_file.name)
+    with session_transaction(session_file) as session:
+        item = _require_item(session, item_id)
+        item["status"] = "completed"
+        item["resolution"] = resolution
+        _clear_blocker_fields(item)
+        _sync_session_status(session)
     return session
 
 
@@ -654,16 +728,13 @@ def mark_skip(
     reason: str = "",
 ) -> dict:
     """Mark an item skipped. Returns updated session."""
-    session = load_session(session_file)
-    _normalize_existing_items(session)
-    item = _require_item(session, item_id)
-    item["status"] = "skipped"
-    if reason:
-        item["skip_reason"] = reason
-    _clear_blocker_fields(item)
-    _sync_session_status(session)
-    save_session(session_file, session)
-    _upsert_index(session_file.parent, session, session_file.name)
+    with session_transaction(session_file) as session:
+        item = _require_item(session, item_id)
+        item["status"] = "skipped"
+        if reason:
+            item["skip_reason"] = reason
+        _clear_blocker_fields(item)
+        _sync_session_status(session)
     return session
 
 
@@ -674,18 +745,15 @@ def mark_deferred(
     deferred_until: str = "",
 ) -> dict:
     """Mark an item deferred. Returns updated item dict."""
-    session = load_session(session_file)
-    _normalize_existing_items(session)
-    item = _require_item(session, item_id)
-    item["status"] = "deferred"
-    if reason:
-        item["defer_reason"] = reason
-    if deferred_until:
-        item["deferred_until"] = deferred_until
-    _clear_blocker_fields(item)
-    _sync_session_status(session)
-    save_session(session_file, session)
-    _upsert_index(session_file.parent, session, session_file.name)
+    with session_transaction(session_file) as session:
+        item = _require_item(session, item_id)
+        item["status"] = "deferred"
+        if reason:
+            item["defer_reason"] = reason
+        if deferred_until:
+            item["deferred_until"] = deferred_until
+        _clear_blocker_fields(item)
+        _sync_session_status(session)
     return item
 
 
@@ -695,45 +763,36 @@ def mark_blocked(
     blocker: str | dict,
 ) -> dict:
     """Mark an item blocked and store blocker metadata."""
-    session = load_session(session_file)
-    _normalize_existing_items(session)
-    item = _require_item(session, item_id)
-    item["status"] = "blocked"
-    item["blocker"] = _blocker_payload(blocker)
-    item["blocked_at"] = datetime.now().isoformat()
-    _sync_session_status(session)
-    save_session(session_file, session)
-    _upsert_index(session_file.parent, session, session_file.name)
+    with session_transaction(session_file) as session:
+        item = _require_item(session, item_id)
+        item["status"] = "blocked"
+        item["blocker"] = _blocker_payload(blocker)
+        item["blocked_at"] = datetime.now().isoformat()
+        _sync_session_status(session)
     return session
 
 
 def mark_in_progress(session_file: Path, item_id: str | int) -> dict:
     """Mark an item in progress. Returns updated session."""
-    session = load_session(session_file)
-    _normalize_existing_items(session)
-    item = _require_item(session, item_id)
-    item["status"] = "in_progress"
-    _clear_blocker_fields(item)
-    _sync_session_status(session)
-    save_session(session_file, session)
-    _upsert_index(session_file.parent, session, session_file.name)
+    with session_transaction(session_file) as session:
+        item = _require_item(session, item_id)
+        item["status"] = "in_progress"
+        _clear_blocker_fields(item)
+        _sync_session_status(session)
     return session
 
 
 def complete_session(session_file: Path) -> dict:
     """Mark the session completed when no actionable items remain."""
-    session = load_session(session_file)
-    _normalize_existing_items(session)
-    if _open_count(session) > 0:
-        raise ValueError(
-            "Cannot complete session while pending, in_progress, "
-            "deferred, or blocked "
-            "items remain"
-        )
-    session["status"] = "completed"
-    session.setdefault("completed_at", datetime.now().isoformat())
-    save_session(session_file, session)
-    _upsert_index(session_file.parent, session, session_file.name)
+    with session_transaction(session_file) as session:
+        if _open_count(session) > 0:
+            raise ValueError(
+                "Cannot complete session while pending, in_progress, "
+                "deferred, or blocked "
+                "items remain"
+            )
+        session["status"] = "completed"
+        session.setdefault("completed_at", datetime.now().isoformat())
     return session
 
 
@@ -743,14 +802,11 @@ def cancel_session(session_file: Path, reason: str = "") -> dict:
     Unlike ``complete_session``, open items are allowed — the session is
     simply marked as no longer being worked.
     """
-    session = load_session(session_file)
-    _normalize_existing_items(session)
-    session["status"] = "cancelled"
-    session["cancelled_at"] = datetime.now().isoformat()
-    if reason:
-        session["cancel_reason"] = reason
-    save_session(session_file, session)
-    _upsert_index(session_file.parent, session, session_file.name)
+    with session_transaction(session_file) as session:
+        session["status"] = "cancelled"
+        session["cancelled_at"] = datetime.now().isoformat()
+        if reason:
+            session["cancel_reason"] = reason
     return session
 
 
@@ -799,44 +855,47 @@ def trim_sessions(
         else:
             cutoff = before
 
-    # Collect all session files from the index (fast path)
-    rows = list_sessions(sessions_dir)
-    deleted: list[str] = []
-    retained: list[str] = []
+    # Deciding what to delete and deleting it must be one atomic step: the
+    # decision is made from the index, and a concurrent mutation between the
+    # two would shift the ground under it.
+    with sessions_lock(sessions_dir, exclusive=True):
+        rows = list_sessions(sessions_dir)
+        deleted: list[str] = []
+        retained: list[str] = []
 
-    for row in rows:
-        filename = row.get("file", "")
-        status   = row.get("status", "")
-        created  = row.get("created", "")  # YYYY-MM-DD or ISO string
+        for row in rows:
+            filename = row.get("file", "")
+            status   = row.get("status", "")
+            created  = row.get("created", "")  # YYYY-MM-DD or ISO string
 
-        # Status filter
-        if status_filter is not None and status != status_filter:
-            retained.append(filename)
-            continue
-
-        # Age filter
-        if cutoff is not None and created:
-            try:
-                created_dt = datetime.fromisoformat(created[:10])  # date portion
-            except ValueError:
-                retained.append(filename)
-                continue
-            if created_dt > cutoff.replace(hour=0, minute=0, second=0, microsecond=0):
+            # Status filter
+            if status_filter is not None and status != status_filter:
                 retained.append(filename)
                 continue
 
-        deleted.append(filename)
+            # Age filter
+            if cutoff is not None and created:
+                try:
+                    created_dt = datetime.fromisoformat(created[:10])  # date portion
+                except ValueError:
+                    retained.append(filename)
+                    continue
+                if created_dt > cutoff.replace(hour=0, minute=0, second=0, microsecond=0):
+                    retained.append(filename)
+                    continue
 
-    if not dry_run:
-        for filename in deleted:
-            sf = sessions_dir / filename
-            try:
-                sf.unlink(missing_ok=True)
-            except OSError:
-                pass
-        # Rebuild index from surviving files
-        rebuilt = _rebuild_index_from_files(sessions_dir)
-        _save_index(sessions_dir, rebuilt)
+            deleted.append(filename)
+
+        if not dry_run:
+            for filename in deleted:
+                sf = sessions_dir / filename
+                try:
+                    sf.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            # Rebuild index from surviving files
+            rebuilt = _rebuild_index_from_files(sessions_dir)
+            _save_index(sessions_dir, rebuilt)
 
     return {
         "deleted":  deleted,
@@ -856,57 +915,60 @@ def create_child_session(
     parent_item_id: str | int | None = None,
 ) -> dict:
     """Create a child session, pause the parent, and optionally block an item.
+
+    Creating the child and pausing the parent happen under a single exclusive
+    lock, so no other process can observe a child that exists while its parent
+    still looks unpaused.  The nested :func:`create_session` re-enters the same
+    lock rather than taking a second one.
     """
-    parent_session = load_session(parent_session_file)
-    _normalize_existing_items(parent_session)
-    if parent_session.get("status") == "completed":
-        raise ValueError(
-            "Cannot create a child session from a completed parent"
+    with sessions_lock(parent_session_file.parent, exclusive=True):
+        parent_session = _load_session_unlocked(parent_session_file)
+        _normalize_existing_items(parent_session)
+        if parent_session.get("status") == "completed":
+            raise ValueError(
+                "Cannot create a child session from a completed parent"
+            )
+        if parent_session.get("active_child_session"):
+            raise ValueError(
+                "Parent session already has an active child session: "
+                f"{parent_session['active_child_session']}"
+            )
+
+        if parent_item_id is not None:
+            _require_item(parent_session, parent_item_id)
+
+        child_session = create_session(
+            child_session_file,
+            items,
+            title=title,
+            description=description,
+            parent_session_file=parent_session_file.name,
+            parent_item_id=parent_item_id,
         )
-    if parent_session.get("active_child_session"):
-        raise ValueError(
-            "Parent session already has an active child session: "
-            f"{parent_session['active_child_session']}"
-        )
 
-    if parent_item_id is not None:
-        _require_item(parent_session, parent_item_id)
+        parent_session.setdefault("child_session_files", [])
+        if child_session_file.name not in parent_session["child_session_files"]:
+            parent_session["child_session_files"].append(
+                child_session_file.name
+            )
+        parent_session["active_child_session"] = child_session_file.name
 
-    child_session = create_session(
-        child_session_file,
-        items,
-        title=title,
-        description=description,
-        parent_session_file=parent_session_file.name,
-        parent_item_id=parent_item_id,
-    )
+        if parent_item_id is not None:
+            parent_item = _require_item(parent_session, parent_item_id)
+            parent_item["status"] = "blocked"
+            parent_item["blocker"] = {
+                "type": "child_session",
+                "session_file": child_session_file.name,
+                "title": child_session.get("title"),
+                "summary": (
+                    "Parent work is blocked until child session "
+                    f"{child_session_file.name} is completed"
+                ),
+            }
+            parent_item["blocked_at"] = datetime.now().isoformat()
 
-    parent_session.setdefault("child_session_files", [])
-    if child_session_file.name not in parent_session["child_session_files"]:
-        parent_session["child_session_files"].append(child_session_file.name)
-    parent_session["active_child_session"] = child_session_file.name
-
-    if parent_item_id is not None:
-        parent_item = _require_item(parent_session, parent_item_id)
-        parent_item["status"] = "blocked"
-        parent_item["blocker"] = {
-            "type": "child_session",
-            "session_file": child_session_file.name,
-            "title": child_session.get("title"),
-            "summary": (
-                "Parent work is blocked until child session "
-                f"{child_session_file.name} is completed"
-            ),
-        }
-        parent_item["blocked_at"] = datetime.now().isoformat()
-
-    _sync_session_status(parent_session)
-    save_session(parent_session_file, parent_session)
-    _upsert_index(
-        parent_session_file.parent,
-        parent_session,
-        parent_session_file.name,
-    )
+        _sync_session_status(parent_session)
+        _write_session_and_index(parent_session_file, parent_session)
 
     return {
         "parent_session": parent_session,
@@ -939,41 +1001,45 @@ def complete_child_session(
             "Must be 'completed' or 'cancelled'."
         )
 
-    if disposition == "completed":
-        child_session = complete_session(child_session_file)
-    else:  # cancelled
-        child_session = cancel_session(child_session_file, reason=resolution)
+    # Closing the child and resuming the parent are one atomic step.  Held
+    # across both, so no other process can see a closed child whose parent is
+    # still paused on it.  The nested complete_session/cancel_session
+    # re-enter this same lock.
+    with sessions_lock(child_session_file.parent, exclusive=True):
+        if disposition == "completed":
+            child_session = complete_session(child_session_file)
+        else:  # cancelled
+            child_session = cancel_session(child_session_file, reason=resolution)
 
-    parent_session_name = child_session.get("parent_session_file")
-    if not parent_session_name:
-        raise ValueError("Session is not a child session")
+        parent_session_name = child_session.get("parent_session_file")
+        if not parent_session_name:
+            raise ValueError("Session is not a child session")
 
-    parent_session_file = child_session_file.parent / parent_session_name
-    parent_session = load_session(parent_session_file)
-    _normalize_existing_items(parent_session)
-    if parent_session.get("active_child_session") == child_session_file.name:
-        parent_session["active_child_session"] = None
+        parent_session_file = child_session_file.parent / parent_session_name
+        parent_session = _load_session_unlocked(parent_session_file)
+        _normalize_existing_items(parent_session)
+        if (
+            parent_session.get("active_child_session")
+            == child_session_file.name
+        ):
+            parent_session["active_child_session"] = None
 
-    parent_item_id = child_session.get("parent_item_id")
-    if parent_item_id is not None:
-        parent_item = _require_item(parent_session, parent_item_id)
-        blocker = parent_item.get("blocker") or {}
-        if blocker.get("session_file") == child_session_file.name:
-            parent_item["status"] = "pending"
-            _clear_blocker_fields(parent_item)
-            note = resolution if resolution else (
-                "Child session was cancelled." if disposition == "cancelled" else ""
-            )
-            if note:
-                parent_item["child_session_resolution"] = note
+        parent_item_id = child_session.get("parent_item_id")
+        if parent_item_id is not None:
+            parent_item = _require_item(parent_session, parent_item_id)
+            blocker = parent_item.get("blocker") or {}
+            if blocker.get("session_file") == child_session_file.name:
+                parent_item["status"] = "pending"
+                _clear_blocker_fields(parent_item)
+                note = resolution if resolution else (
+                    "Child session was cancelled."
+                    if disposition == "cancelled" else ""
+                )
+                if note:
+                    parent_item["child_session_resolution"] = note
 
-    _sync_session_status(parent_session)
-    save_session(parent_session_file, parent_session)
-    _upsert_index(
-        parent_session_file.parent,
-        parent_session,
-        parent_session_file.name,
-    )
+        _sync_session_status(parent_session)
+        _write_session_and_index(parent_session_file, parent_session)
 
     return {
         "child_session": child_session,
@@ -983,32 +1049,31 @@ def complete_child_session(
 
 def merge_items(session_file: Path, items: list[dict]) -> dict:
     """Append items to an existing session and reactivate it if needed."""
-    session = load_session(session_file)
-    _normalize_existing_items(session)
-    existing_ids = {str(item.get("id")) for item in session.get("items", [])}
-    numeric_ids = [
-        int(item_id) for item_id in existing_ids if item_id.isdigit()
-    ]
-    next_idx = max(numeric_ids, default=0) + 1
-    merged_items = []
+    with session_transaction(session_file) as session:
+        existing_ids = {
+            str(item.get("id")) for item in session.get("items", [])
+        }
+        numeric_ids = [
+            int(item_id) for item_id in existing_ids if item_id.isdigit()
+        ]
+        next_idx = max(numeric_ids, default=0) + 1
+        merged_items = []
 
-    for raw_item in items:
-        item = dict(raw_item)
-        if "id" not in item:
-            while str(next_idx) in existing_ids:
+        for raw_item in items:
+            item = dict(raw_item)
+            if "id" not in item:
+                while str(next_idx) in existing_ids:
+                    next_idx += 1
+                item["id"] = next_idx
                 next_idx += 1
-            item["id"] = next_idx
-            next_idx += 1
-        if str(item["id"]) in existing_ids:
-            raise ValueError(f"Duplicate item id: {item['id']}")
-        normalized = _normalize_item(item, item["id"])
-        session.setdefault("items", []).append(normalized)
-        merged_items.append(normalized)
-        existing_ids.add(str(normalized["id"]))
+            if str(item["id"]) in existing_ids:
+                raise ValueError(f"Duplicate item id: {item['id']}")
+            normalized = _normalize_item(item, item["id"])
+            session.setdefault("items", []).append(normalized)
+            merged_items.append(normalized)
+            existing_ids.add(str(normalized["id"]))
 
-    _sync_session_status(session)
-    save_session(session_file, session)
-    _upsert_index(session_file.parent, session, session_file.name)
+        _sync_session_status(session)
     return {
         "session": session,
         "merged_items": merged_items,
@@ -1024,54 +1089,51 @@ def set_approval(
     lifecycle_status: str | None = None,
 ) -> dict:
     """Set approval metadata and optional lifecycle state on an item."""
-    session = load_session(session_file)
-    _normalize_existing_items(session)
-    item = _require_item(session, item_id)
+    with session_transaction(session_file) as session:
+        item = _require_item(session, item_id)
 
-    if approval_mode in {"", "none", "null"}:
-        approval_mode = None
-    if note in {"", "none", "null"}:
-        note = None
-    if lifecycle_status in {"", "none", "null"}:
-        lifecycle_status = None
+        if approval_mode in {"", "none", "null"}:
+            approval_mode = None
+        if note in {"", "none", "null"}:
+            note = None
+        if lifecycle_status in {"", "none", "null"}:
+            lifecycle_status = None
 
-    approval_status = _validate_approval_status(approval_status)
-    approval_mode = _validate_approval_mode(approval_mode)
-    if lifecycle_status is not None:
-        lifecycle_status = _validate_item_status(lifecycle_status)
+        approval_status = _validate_approval_status(approval_status)
+        approval_mode = _validate_approval_mode(approval_mode)
+        if lifecycle_status is not None:
+            lifecycle_status = _validate_item_status(lifecycle_status)
 
-    if approval_status != "approved" and approval_mode is not None:
-        raise ValueError(
-            "approval_mode can only be set when approval_status is "
-            "'approved'"
-        )
+        if approval_status != "approved" and approval_mode is not None:
+            raise ValueError(
+                "approval_mode can only be set when approval_status is "
+                "'approved'"
+            )
 
-    if approval_status == "approved":
-        if approval_mode is None:
-            approval_mode = "immediate"
-        item["approval_status"] = approval_status
-        item["approval_mode"] = approval_mode
-        item["approved_at"] = (
-            item.get("approved_at") or datetime.now().isoformat()
-        )
-    else:
-        item["approval_status"] = approval_status
-        item["approval_mode"] = None
-        item["approved_at"] = None
+        if approval_status == "approved":
+            if approval_mode is None:
+                approval_mode = "immediate"
+            item["approval_status"] = approval_status
+            item["approval_mode"] = approval_mode
+            item["approved_at"] = (
+                item.get("approved_at") or datetime.now().isoformat()
+            )
+        else:
+            item["approval_status"] = approval_status
+            item["approval_mode"] = None
+            item["approved_at"] = None
 
-    item["approval_note"] = note
+        item["approval_note"] = note
 
-    if lifecycle_status is not None:
-        item["status"] = lifecycle_status
-    elif approval_status == "approved" and approval_mode == "delayed":
-        item["status"] = "deferred"
+        if lifecycle_status is not None:
+            item["status"] = lifecycle_status
+        elif approval_status == "approved" and approval_mode == "delayed":
+            item["status"] = "deferred"
 
-    if item["status"] != "blocked":
-        _clear_blocker_fields(item)
+        if item["status"] != "blocked":
+            _clear_blocker_fields(item)
 
-    _sync_session_status(session)
-    save_session(session_file, session)
-    _upsert_index(session_file.parent, session, session_file.name)
+        _sync_session_status(session)
     return item
 
 
@@ -1085,49 +1147,46 @@ def update_field(
 
     Returns the updated item dict.
     """
-    session = load_session(session_file)
-    _normalize_existing_items(session)
-    item = _require_item(session, item_id)
-    new_value: str | int | None = value
-    if field == "status":
-        new_value = _validate_item_status(new_value)
-        if new_value != "blocked":
-            _clear_blocker_fields(item)
-    elif field == "approval_status":
-        new_value = _validate_approval_status(new_value)
-        if new_value == "approved":
-            item["approved_at"] = (
-                item.get("approved_at") or datetime.now().isoformat()
-            )
-        else:
-            item["approval_mode"] = None
-            item["approved_at"] = None
-    elif field == "approval_mode":
-        if new_value in {"", "none", "null"}:
-            new_value = None
-        new_value = _validate_approval_mode(new_value)
-        if new_value is not None:
-            item["approval_status"] = "approved"
-            item["approved_at"] = (
-                item.get("approved_at") or datetime.now().isoformat()
-            )
-    elif field in {
-        "resolution",
-        "skip_reason",
-        "blocked_at",
-        "approved_at",
-        "approval_note",
-    }:
-        if new_value in {"", "none", "null"}:
-            new_value = None
-    if field in _SCORE_COMPONENTS or field == "priority_score":
-        if new_value is None:
-            raise ValueError(f"Field '{field}' cannot be null")
-        new_value = int(new_value)
-    item[field] = new_value
-    if field in _SCORE_COMPONENTS:
-        _recalc_priority(item)
-    _sync_session_status(session)
-    save_session(session_file, session)
-    _upsert_index(session_file.parent, session, session_file.name)
+    with session_transaction(session_file) as session:
+        item = _require_item(session, item_id)
+        new_value: str | int | None = value
+        if field == "status":
+            new_value = _validate_item_status(new_value)
+            if new_value != "blocked":
+                _clear_blocker_fields(item)
+        elif field == "approval_status":
+            new_value = _validate_approval_status(new_value)
+            if new_value == "approved":
+                item["approved_at"] = (
+                    item.get("approved_at") or datetime.now().isoformat()
+                )
+            else:
+                item["approval_mode"] = None
+                item["approved_at"] = None
+        elif field == "approval_mode":
+            if new_value in {"", "none", "null"}:
+                new_value = None
+            new_value = _validate_approval_mode(new_value)
+            if new_value is not None:
+                item["approval_status"] = "approved"
+                item["approved_at"] = (
+                    item.get("approved_at") or datetime.now().isoformat()
+                )
+        elif field in {
+            "resolution",
+            "skip_reason",
+            "blocked_at",
+            "approved_at",
+            "approval_note",
+        }:
+            if new_value in {"", "none", "null"}:
+                new_value = None
+        if field in _SCORE_COMPONENTS or field == "priority_score":
+            if new_value is None:
+                raise ValueError(f"Field '{field}' cannot be null")
+            new_value = int(new_value)
+        item[field] = new_value
+        if field in _SCORE_COMPONENTS:
+            _recalc_priority(item)
+        _sync_session_status(session)
     return item
