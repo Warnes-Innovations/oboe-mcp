@@ -27,6 +27,21 @@ feature branch ──PR──> devel ──PR──> main ──> PyPI release
   `docs/…`.
 - Promotion from `devel` to `main` is its own pull request, made when the work
   on `devel` is ready to be released.
+- **Merge `main` back into `devel` immediately after each promotion.** The
+  promotion PR adds a merge commit to `main` that `devel` never receives, so
+  without this the two branches read as diverged even when their content is
+  byte-identical:
+
+  ```bash
+  git fetch origin
+  git push origin origin/main:devel      # fast-forward; devel has no unique commits
+  ```
+
+  Skipping it is not harmless. The delta accumulates, and "is `main` current?"
+  stops being answerable from ancestry — you have to diff the trees instead.
+  That ambiguity is what let `main` silently drift five commits ahead of the
+  default branch earlier, which in turn is why a feature branch was cut from
+  the wrong base.
 - Publishing to PyPI happens from `main` after that promotion. It is a
   separate, deliberately gated step — see *Releases* below.
 
