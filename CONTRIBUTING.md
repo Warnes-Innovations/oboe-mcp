@@ -122,8 +122,47 @@ was already requested in general terms:
 - GitHub release creation
 - PyPI publication
 
-Version numbers follow semantic versioning and are set in `pyproject.toml`.
-Update `CHANGELOG.md` in the same change as the version bump.
+Version numbers follow semantic versioning. **Two files carry the version and
+must be updated together** — `pyproject.toml` (`version`) and
+`src/oboe_mcp/__init__.py` (`__version__`). They have drifted before: 0.2.0
+shipped reporting `__version__ == "0.1.2"`. Update `CHANGELOG.md` in the same
+change as the bump.
+
+### Verify the artifact before tagging — always
+
+A PyPI version number is immutable and cannot be reused; a broken `X.Y.Z` means
+shipping `X.Y.Z+1`. Build and exercise the real artifact first:
+
+```bash
+uv build --out-dir dist/
+uv run --isolated --no-project \
+  --with ./dist/oboe_mcp-<VERSION>-py3-none-any.whl --with 'mcp<3.0' \
+  oboe-mcp --help
+```
+
+Smoke-test both entry points (`oboe-mcp`, `oboe-cli`) **and any command the
+release notes tell users to run**. The 0.3.0 changelog advertised
+`uvx oboe-mcp migrate` while no such command existed — running the advertised
+command against a clean install is what catches that.
+
+### TestPyPI dry run — only when `publish.yml` changed
+
+```bash
+gh workflow run publish.yml --ref main -f repository=testpypi
+```
+
+Run this **only when `.github/workflows/publish.yml` has changed since the last
+release**. It validates the CI publish path — build job, artifact hand-off,
+action pins, permissions — and nothing else.
+
+It specifically does **not** validate PyPI's trusted publisher configuration:
+TestPyPI needs a separate registration, and a failure there says nothing about
+PyPI. On 2026-07-31 a dry run failed with `invalid-publisher` while PyPI's
+config was intact and the real publish succeeded unchanged.
+
+Running it every time would spend real effort on a step that usually reports
+nothing — and a check that habitually says nothing is one people learn to skip
+at exactly the moment it would have mattered.
 
 ## Reporting a security issue
 
