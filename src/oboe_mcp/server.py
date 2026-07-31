@@ -5,7 +5,7 @@
 # For commercial licensing, contact greg@warnes-innovations.com
 
 """
-Oboe MCP Server — 20 tools for One-By-One session management.
+Oboe MCP Server — 22 tools for One-By-One session management.
 
 Uses MCPServer for concise tool registration.
 """
@@ -21,6 +21,13 @@ from typing import Optional, Sequence
 
 from mcp.server.mcpserver import MCPServer
 
+from oboe_mcp.locking import (
+    DEFAULT_TIMEOUT,
+    LockError,
+    get_default_policy,
+    set_default_policy,
+    supports_shared_locks,
+)
 from oboe_mcp.session import (
     cancel_session,
     complete_child_session,
@@ -49,7 +56,9 @@ from oboe_mcp.session import (
 
 mcp = MCPServer("oboe-mcp", instructions="One-By-One session management tools")
 
-_TOOL_EXCEPTIONS = (OSError, ValueError, json.JSONDecodeError)
+# LockError is included so a contended session surfaces to the calling agent
+# as a normal tool error it can act on, rather than an unhandled exception.
+_TOOL_EXCEPTIONS = (OSError, ValueError, json.JSONDecodeError, LockError)
 
 _REMOTE_SSH_HINT = """\
 
@@ -913,6 +922,76 @@ def oboe_trim_sessions(
         }, indent=2)
     except ValueError as e:
         return f"ERROR: {e}"
+    except _TOOL_EXCEPTIONS as e:
+        return f"ERROR: {e}"
+
+
+# ---------------------------------------------------------------------------
+# Tool: oboe_set_lock_policy
+# ---------------------------------------------------------------------------
+@mcp.tool()
+def oboe_set_lock_policy(
+    blocking: bool = True,
+    timeout_seconds: Optional[float] = DEFAULT_TIMEOUT,
+) -> str:
+    """Choose what happens when another process holds the session lock.
+
+    Session files are shared with the oboe-cli and with any other editor
+    window or agent pointed at the same project, so an operation can find the
+    store locked.  This sets the policy for subsequent tool calls on this
+    server; it does not need to be called at all if the default suits you.
+
+    Args:
+        blocking: True (default) waits for the lock. False fails immediately
+                  with an error when the lock is held, which suits an agent
+                  that would rather retry later than stall.
+        timeout_seconds: How long to wait when blocking. Omit for the default
+                  of 30s. Pass 0 or a negative number to wait indefinitely —
+                  note that a wedged holder will then hang the call with no
+                  diagnostic.
+    """
+    try:
+        timeout: float | None
+        if timeout_seconds is None:
+            timeout = DEFAULT_TIMEOUT
+        elif timeout_seconds <= 0:
+            timeout = None
+        else:
+            timeout = float(timeout_seconds)
+
+        applied = set_default_policy(blocking=blocking, timeout=timeout)
+        return json.dumps({
+            "status": "ok",
+            "action": "lock_policy_set",
+            "blocking": applied.blocking,
+            "timeout_seconds": applied.timeout,
+            "policy": applied.describe(),
+            "concurrent_readers": supports_shared_locks(),
+            "note": (
+                "Applies to subsequent oboe_* calls on this server process. "
+                "Other processes (oboe-cli, another editor window) keep their "
+                "own policy."
+            ),
+        }, indent=2)
+    except _TOOL_EXCEPTIONS as e:
+        return f"ERROR: {e}"
+
+
+# ---------------------------------------------------------------------------
+# Tool: oboe_get_lock_policy
+# ---------------------------------------------------------------------------
+@mcp.tool()
+def oboe_get_lock_policy() -> str:
+    """Report the lock policy currently in effect for this server process."""
+    try:
+        current = get_default_policy()
+        return json.dumps({
+            "status": "ok",
+            "blocking": current.blocking,
+            "timeout_seconds": current.timeout,
+            "policy": current.describe(),
+            "concurrent_readers": supports_shared_locks(),
+        }, indent=2)
     except _TOOL_EXCEPTIONS as e:
         return f"ERROR: {e}"
 

@@ -191,6 +191,45 @@ Common pairings:
 - Approve Delayed: call `oboe_set_approval(..., approval_status="approved", approval_mode="delayed")`; this records delayed approval and moves the item to `deferred`
 - Deny: set `approval_status=denied`; if the item is being closed out of the queue, pair it with `status=skipped`
 
+## Concurrency
+
+Session files are shared state. The MCP server, `oboe-cli`, a second editor
+window, and any script you run can all reach the same
+`.github/oboe_sessions/` directory at once, so every operation takes a
+cross-process lock over that directory.
+
+**What you get:**
+
+- A mutation writes the session file and `index.json` under a single held
+  lock, so the two never drift apart, and an error mid-operation writes
+  nothing at all.
+- Writes are atomic (temp file + rename). A reader never sees a truncated or
+  half-written file.
+- Readers take a *shared* lock, so concurrent reads do not block each other.
+  Writers are exclusive.
+
+**Choosing what happens when the lock is held.** The default is to wait up to
+30 seconds and then raise an error naming the lock file and its recorded
+holder. An agent that would rather retry later than stall can ask to fail
+immediately instead:
+
+| Surface | Wait longer | Fail immediately |
+|---|---|---|
+| MCP | `oboe_set_lock_policy(timeout_seconds=120)` | `oboe_set_lock_policy(blocking=false)` |
+| CLI | `oboe-cli --lock-timeout 120 …` | `oboe-cli --lock-fail-fast …` |
+| Environment | `OBOE_LOCK_TIMEOUT=120` | `OBOE_LOCK_POLICY=fail-fast` |
+
+Pass `--lock-timeout none` (or `OBOE_LOCK_TIMEOUT=none`) to wait indefinitely.
+Be aware that a wedged holder will then hang the call with no diagnostic,
+which is why it is not the default. `oboe_get_lock_policy` reports what is
+currently in effect.
+
+**Platform note.** POSIX uses `fcntl.flock`. Elsewhere a portable lockfile
+fallback is used which cannot express shared mode, so readers are serialized
+along with writers; `oboe_get_lock_policy` reports this as
+`concurrent_readers: false`. The lock file is `.oboe.lock` inside the sessions
+directory and should not be committed.
+
 ## Interaction Modes
 
 The three common interaction patterns are plain chat, a structured question tool, and a full OBO session. They solve different problems.
