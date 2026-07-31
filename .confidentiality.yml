@@ -1,0 +1,29 @@
+# Copyright (C) 2026 Gregory R. Warnes
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Read by ~/src/agent-config/tools/check_confidential.py
+#
+# One of:
+#   public-bound   — this repository is published, or is intended to be. Scan every
+#                    commit for confidential material.
+#   always-private — this repository will never be published. Skip the scan.
+#
+# ABSENT FILE MEANS public-bound. That default is deliberate: a repository nobody has
+# classified is exactly the one where nobody has considered the question.
+intent: public-bound
+
+# THIS REPOSITORY IS ALREADY PUBLIC. `gh repo view --json visibility` reports PUBLIC as
+# of 2026-07-31, and the package is distributed on PyPI as `oboe-mcp`. Anything committed
+# here is world-readable the moment it is pushed, and the history retains it even if the
+# file is deleted afterwards — and anything that reaches a release is additionally
+# mirrored into every sdist and wheel on PyPI, which cannot be un-published, only yanked.
+#
+# The declaration therefore buys no skip and is not a judgement call that could later turn
+# out wrong. It records that the question was asked, and it upgrades the scanner's output
+# from "no declaration, defaulting to public-bound, nobody has considered this" to a plain
+# "nothing found" — two different statements that were previously reported identically.
+#
+# Added 2026-07-31 after a /flush run reported exit 0 while scanning zero candidate files,
+# which is a vacuous pass rather than a clean one. The declaration does not fix that
+# (the scanner examines staged and untracked paths, so unstaged edits are still invisible
+# to it); it removes only the ambiguity about intent.
