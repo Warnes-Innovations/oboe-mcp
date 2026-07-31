@@ -131,6 +131,11 @@ It:
   Publishing); `codeql.yml` floated likewise while holding
   `security-events: write`. A repointed ref could have injected code into a
   workflow carrying live publish credentials.
+- Raised `codeql.yml` to `actions/checkout` v6 and CodeQL Action v4, clearing
+  two runner deprecations: Node 20 is deprecated on GitHub runners, and CodeQL
+  Action v3 is scheduled for removal in December 2026. Every action across both
+  workflows now runs on node24 (`pypa/gh-action-pypi-publish` is a composite
+  action with no Node runtime).
 
 ## [0.2.0] - 2026-04-11
 
