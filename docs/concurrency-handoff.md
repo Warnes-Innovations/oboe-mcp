@@ -71,21 +71,58 @@ Plan an approach that covers:
   A read that feeds a subsequent write holds its lock across the whole
   read-modify-write cycle.
 
-## Design questions still to resolve
+## Remaining questions, as resolved during implementation
 
-These follow from the two decisions above but were not themselves decided:
+- **Lock granularity — one lock per sessions directory.** This *changed* from
+  the per-session-file + separate-index-lock plan. Reading the code showed the
+  per-file split buys nothing: every mutation writes both a session file and
+  the shared `index.json`, so the index lock alone already serializes every
+  writer. Per-file locks would have added a real deadlock hazard (see ordering
+  below) in exchange for concurrency the index lock forecloses anyway. Readers
+  still run in parallel because they take a *shared* lock.
+- **Lock ordering — moot under a single lock.** With one lock per directory,
+  `create_child_session` and `complete_child_session` cannot deadlock against
+  each other; the nested `create_session` / `complete_session` calls re-enter
+  the lock the outer operation already holds. Re-entrancy is per-thread and
+  depth-counted; escalating a held *shared* lock to exclusive is rejected
+  outright, since it would mean releasing mid-operation.
+- **Timeout default — 30s, finite.** An unbounded wait on a lock left by a
+  wedged process gives the caller no diagnostic and no way out. The error
+  names the lock file and the recorded holder. `none` still selects an
+  indefinite wait for callers who want it.
+- **Mechanism and fallback — `fcntl.flock` on POSIX, `O_CREAT | O_EXCL`
+  lockfile elsewhere.** The fallback cannot express shared mode, so readers
+  are serialized there; `supports_shared_locks()` reports which is in use
+  rather than letting callers assume. The fallback reaps a lockfile whose
+  owning PID no longer exists, so a crash cannot wedge a directory forever.
+  No new runtime dependencies were added.
 
-- **Lock granularity:** per session file, plus a separate lock for `index.json`
-  (every mutation touches both). Shared vs. exclusive mode for the read path is
-  an open sub-question — `fcntl.flock` offers `LOCK_SH`, which would let
-  concurrent readers proceed without blocking each other.
-- **Lock ordering / deadlock avoidance:** `create_child_session` locks the
-  parent, then creates the child (which locks the child + the index). A single
-  documented acquisition order is required. Not yet chosen.
-- **Timeout default:** whether "block" with no explicit timeout should wait
-  forever or fall back to a generous built-in ceiling.
-- **Mechanism and fallback:** `fcntl.flock` on POSIX; behavior on platforms
-  without it (fallback vs. documented no-op) is undecided.
+## Implementation notes
+
+- New module `src/oboe_mcp/locking.py` holds both primitives.
+- `session_transaction()` in `session.py` replaces the hand-written
+  load → mutate → `save_session` → `_upsert_index` sequence at every call
+  site. The session file and index row are now written under one held lock,
+  and an exception inside the block aborts the write entirely.
+- The lock file is `.oboe.lock` inside the sessions directory, and is
+  gitignored — session files themselves are tracked in this repo, so ignoring
+  the directory wholesale was not an option.
+- Choosing the policy: `oboe_set_lock_policy` / `oboe_get_lock_policy` (MCP),
+  `--lock-timeout` / `--lock-fail-fast` (CLI), or `OBOE_LOCK_POLICY` /
+  `OBOE_LOCK_TIMEOUT` (environment).
+
+## Verification
+
+`tests/test_concurrency.py` drives real subprocesses, not threads — the
+protection is cross-process, and threads would exercise the re-entrancy path
+instead of the failure being guarded against.
+
+The tests were validated by negative control: with the lock made a no-op and
+the atomic write reverted to a truncating `open(..., "w")`, **10 of the 14
+concurrency tests fail**, including the lost-update, index-consistency, TOCTOU
+and truncation cases. The 4 that still pass under the control are API-semantics
+tests (re-entrancy, escalation, composite operations), which are not intended
+to detect the original bugs.
 
 ## File to modify
 

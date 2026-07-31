@@ -711,10 +711,12 @@ def test_create_child_auto_generates_filename(base_dir, sessions_dir, session_fi
                   "--input-file", str(items_f))
     assert "Child session created" in out
     assert "Parent session paused" in out
-    # A file matching session_YYYYMMDD_HHMMSS.json should now exist
+    # A file matching session_YYYYMMDD_HHMMSS.json should now exist.
+    # Match the session-file glob rather than "every other file in the dir" —
+    # the directory also holds index.json and the .oboe.lock lock file.
     created = [
-        f for f in sessions_dir.iterdir()
-        if f.name != session_file.name and f.name != "index.json"
+        f for f in sessions_dir.glob("session_*.json")
+        if f.name != session_file.name
     ]
     assert len(created) == 1
     assert created[0].name.startswith("session_")

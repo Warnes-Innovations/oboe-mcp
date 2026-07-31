@@ -8,3 +8,11 @@ build/
 .pytest_cache/
 .github/obo_sessions/**
 /tmp/
+
+# Cross-process lock file for session storage; runtime state, never committed.
+# Session files themselves ARE tracked, so this cannot rely on ignoring the
+# sessions directory as a whole.
+.oboe.lock
+**/.oboe.lock
+# Temp files from interrupted atomic writes (normally removed automatically).
+.*.json.*.tmp
