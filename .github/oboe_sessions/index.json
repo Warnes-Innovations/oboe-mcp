@@ -1,6 +1,6 @@
 {
   "format_version": 1,
-  "last_updated": "2026-04-22T18:51:47.326504",
+  "last_updated": "2026-07-31T14:28:51.492607",
   "sessions": [
     {
       "file": "session_20260411_120000.json",
@@ -27,6 +27,20 @@
       "actionable": 0,
       "open": 1,
       "created": "2026-04-22",
+      "parent_session_file": null,
+      "active_child_session": null
+    },
+    {
+      "file": "session_20260731_002242.json",
+      "title": "Concurrency Control for Session Storage",
+      "status": "completed",
+      "pending": 0,
+      "in_progress": 0,
+      "deferred": 0,
+      "blocked": 0,
+      "actionable": 0,
+      "open": 0,
+      "created": "2026-07-31",
       "parent_session_file": null,
       "active_child_session": null
     }

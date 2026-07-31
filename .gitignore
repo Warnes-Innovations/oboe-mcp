@@ -16,3 +16,6 @@ build/
 **/.oboe.lock
 # Temp files from interrupted atomic writes (normally removed automatically).
 .*.json.*.tmp
+
+# Linked git worktrees live here by convention (see CONTRIBUTING.md).
+/worktrees/
