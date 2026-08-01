@@ -16,6 +16,15 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
 
 ## [Unreleased]
 
+### Fixed
+
+- **`oboe-cli next --mark-in-progress` crashed on a session with no actionable
+  items.** `_cmd_next` dereferenced `item["id"]` before `_print_next`'s
+  `item is None` branch could report "No actionable items", so `get_next()`
+  returning `None` raised `TypeError: 'NoneType' object is not subscriptable`.
+  The MCP `oboe_next` was already correct. All four `get_next`/`get_item` call
+  sites were checked; this was the only one missing its guard.
+
 ### Added
 
 - **`reindex` — rebuild `index.json` from the session files on disk.** Available

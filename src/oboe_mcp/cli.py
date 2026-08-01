@@ -779,7 +779,10 @@ def _cmd_next(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     except ValueError as exc:
         print(f"❌ {exc}", file=sys.stderr)
         return 1
-    if getattr(args, "mark_in_progress", False):
+    # get_next returns None when nothing is actionable. There is no item to
+    # mark, and _print_next already reports that case -- so fall through to it
+    # rather than dereferencing None.
+    if item is not None and getattr(args, "mark_in_progress", False):
         try:
             mark_in_progress(sf, item["id"])
         except (KeyError, ValueError) as exc:

@@ -979,3 +979,20 @@ def test_reindex_on_empty_sessions_dir_is_a_clean_noop(base_dir):
     # nothing-to-index path rather than the missing-directory path.
     out, _ = _run("--base-dir", str(base_dir), "reindex")
     assert "already accurate (0 sessions)" in out
+
+
+def test_next_mark_in_progress_with_no_actionable_items(base_dir, sessions_dir):
+    """`next --mark-in-progress` on a finished session must not crash.
+
+    _cmd_next dereferenced item["id"] before _print_next's None branch could
+    report "no actionable items", so get_next() returning None raised
+    TypeError: 'NoneType' object is not subscriptable.
+    """
+    create_session(
+        sessions_dir / _ts("120000"),
+        [{"title": "Done", "status": "completed"}],
+        title="All done",
+    )
+    out, _ = _run("--base-dir", str(base_dir), "-s", _ts("120000"),
+                  "next", "--mark-in-progress")
+    assert "No actionable items" in out
