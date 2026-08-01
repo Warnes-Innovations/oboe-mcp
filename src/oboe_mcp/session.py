@@ -495,18 +495,36 @@ def reindex(sessions_dir: Path | str, *, write: bool = True) -> dict:
     still happens under a lock, so a concurrent write cannot make the report a
     blend of two states.
 
+    An index that is already correct is **not rewritten**: ``_save_index`` stamps
+    ``last_updated``, so an unconditional write would turn every no-op run into a
+    one-line diff, and in a versioned session store that is churn on a command
+    meant to be safe to run whenever the list looks wrong.  A *corrupt* index is
+    always rewritten even when the rebuilt rows happen to match, or the bad bytes
+    would survive a repair that reported success.
+
     Returns a summary dict with ``added``/``removed``/``updated`` filename lists,
-    the before/after entry counts, and ``changed`` (False when the index was
-    already accurate — the common case, and worth being able to assert).
+    the before/after entry counts, ``changed`` (False when the index was already
+    accurate — the common case, and worth being able to assert), and ``written``
+    (what actually happened, which ``write=True`` no longer implies).
     """
     sessions_dir = Path(sessions_dir)
 
     # A read-only check needs only the shared lock; a rebuild mutates and needs
     # the exclusive one.
     with sessions_lock(sessions_dir, exclusive=write):
+        # Track whether the existing index was USABLE, separately from whether
+        # its contents match.  A corrupt index whose rebuild happens to produce
+        # the same (e.g. empty) row set is "unchanged" by row comparison and
+        # still needs rewriting — otherwise the corrupt bytes survive a repair
+        # that reported success.
+        old_index_ok = False
         try:
             old = _load_index_unlocked(sessions_dir)
-            old_rows = old["sessions"] if _is_valid_index(old) else []
+            if _is_valid_index(old):
+                old_rows = old["sessions"]
+                old_index_ok = True
+            else:
+                old_rows = []
         except (json.JSONDecodeError, ValueError, OSError):
             # Unreadable or corrupt: treat as empty rather than failing.  The
             # whole point of this call is to recover from a bad index.
@@ -534,7 +552,15 @@ def reindex(sessions_dir: Path | str, *, write: bool = True) -> dict:
             if old_by_file[f] != new_by_file[f]
         )
 
-        if write:
+        changed = bool(added or removed or updated)
+
+        # Do not rewrite an index that is already correct.  `_save_index` stamps
+        # `last_updated`, so an unconditional write turns every no-op run into a
+        # one-line diff — which in a versioned session store (the canonical
+        # layout) means spurious churn on a command whose whole purpose is to be
+        # safe to run whenever the list looks wrong.
+        written = bool(write and (changed or not old_index_ok))
+        if written:
             _save_index(sessions_dir, rebuilt)
 
     unreadable = sorted(
@@ -542,14 +568,16 @@ def reindex(sessions_dir: Path | str, *, write: bool = True) -> dict:
     )
     return {
         "sessions_dir": str(sessions_dir),
-        "written": write,
+        # What actually happened, not what was requested — a caller asserting on
+        # this needs the outcome, and `write=True` no longer implies a write.
+        "written": written,
         "before": len(old_rows),
         "after": len(new_rows),
         "added": added,
         "removed": removed,
         "updated": updated,
         "unreadable": unreadable,
-        "changed": bool(added or removed or updated),
+        "changed": changed,
     }
 
 

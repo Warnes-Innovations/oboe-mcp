@@ -1395,3 +1395,40 @@ def test_reindex_indexes_unreadable_files_rather_than_dropping_them(
 
     assert result["after"] == 2, "an unreadable file must still be indexed"
     assert result["unreadable"] == ["session_20260314_130000.json"]
+
+
+def test_reindex_does_not_rewrite_an_accurate_index(sessions_dir, sample_items):
+    """A no-op run must leave the file byte-identical.
+
+    _save_index stamps last_updated, so an unconditional write turns every
+    no-op into a one-line diff — churn in a versioned session store, on a
+    command meant to be safe to run whenever the list looks wrong.
+    """
+    create_session(
+        sessions_dir / "session_20260314_120000.json", sample_items, title="One"
+    )
+    idx_path = sessions_dir / "index.json"
+    before = idx_path.read_bytes()
+
+    result = reindex(sessions_dir)
+
+    assert result["changed"] is False
+    assert result["written"] is False
+    assert idx_path.read_bytes() == before, "no-op run must not rewrite the file"
+
+
+def test_reindex_rewrites_a_corrupt_index_even_when_rows_match(sessions_dir):
+    """Corrupt bytes must not survive a repair that reported success.
+
+    With no session files the rebuild is empty, so row comparison finds
+    nothing changed — but the file on disk is still unparsable and must be
+    replaced.
+    """
+    idx_path = sessions_dir / "index.json"
+    idx_path.write_text("{ not json at all")
+
+    result = reindex(sessions_dir)
+
+    assert result["changed"] is False   # no rows differ; both sides empty
+    assert result["written"] is True    # ...but the corrupt file was replaced
+    assert _is_valid_index(json.loads(idx_path.read_text()))
