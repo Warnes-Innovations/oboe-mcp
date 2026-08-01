@@ -911,3 +911,71 @@ def test_trim_sessions_cancelled_status(base_dir, sessions_dir, sample_items):
     out, _ = _run("--base-dir", str(base_dir), "trim-sessions", "--before", "now", "--status", "cancelled")
     assert "Deleted 1" in out or "1 session" in out
     assert not sf.exists()
+
+
+# ---------------------------------------------------------------------------
+# reindex
+# ---------------------------------------------------------------------------
+
+def _truncate_index_to_one(base_dir):
+    """Leave a structurally VALID index listing only the first session."""
+    idx = base_dir / ".github" / "oboe_sessions" / "index.json"
+    full = json.loads(idx.read_text())
+    idx.write_text(json.dumps({
+        "format_version": 1,
+        "last_updated": full["last_updated"],
+        "sessions": full["sessions"][:1],
+    }))
+    return idx
+
+
+def test_reindex_rebuilds_stale_index(base_dir, sessions_dir, sample_items):
+    # Create directly rather than via the CLI: `create` derives the filename
+    # from the current timestamp, so two calls in the same second collide.
+    create_session(sessions_dir / _ts("120000"), sample_items, title="One")
+    create_session(sessions_dir / _ts("130000"), sample_items, title="Two")
+    _truncate_index_to_one(base_dir)
+
+    # The stale index is valid, so `sessions` reports only the surviving row.
+    out, _ = _run("--base-dir", str(base_dir), "sessions")
+    assert "Two" not in out
+
+    out, _ = _run("--base-dir", str(base_dir), "reindex")
+    assert "Rebuilt index.json" in out
+
+    out, _ = _run("--base-dir", str(base_dir), "sessions")
+    assert "Two" in out
+
+
+def test_reindex_reports_no_change_when_accurate(base_dir, sessions_dir,
+                                                 sample_items):
+    create_session(sessions_dir / _ts("120000"), sample_items, title="One")
+    out, _ = _run("--base-dir", str(base_dir), "reindex")
+    assert "already accurate" in out
+
+
+def test_reindex_check_exits_nonzero_on_drift(base_dir, sessions_dir,
+                                              sample_items):
+    create_session(sessions_dir / _ts("120000"), sample_items, title="One")
+    create_session(sessions_dir / _ts("130000"), sample_items, title="Two")
+    idx = _truncate_index_to_one(base_dir)
+    before = idx.read_text()
+
+    out, _ = _run("--base-dir", str(base_dir), "reindex", "--check",
+                  expect_rc=1)
+    assert "STALE" in out
+    assert idx.read_text() == before, "--check must not write"
+
+
+def test_reindex_check_exits_zero_when_accurate(base_dir, sessions_dir,
+                                                sample_items):
+    create_session(sessions_dir / _ts("120000"), sample_items, title="One")
+    out, _ = _run("--base-dir", str(base_dir), "reindex", "--check")
+    assert "accurate" in out
+
+
+def test_reindex_on_empty_sessions_dir_is_a_clean_noop(base_dir):
+    # The fixture creates the directory, so this exercises the
+    # nothing-to-index path rather than the missing-directory path.
+    out, _ = _run("--base-dir", str(base_dir), "reindex")
+    assert "already accurate (0 sessions)" in out

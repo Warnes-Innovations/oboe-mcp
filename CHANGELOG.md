@@ -16,6 +16,29 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
 
 ## [Unreleased]
 
+### Added
+
+- **`reindex` — rebuild `index.json` from the session files on disk.** Available
+  as the `oboe_reindex` MCP tool and the `oboe-cli reindex` command, with a
+  `--check` / `write=False` mode that reports drift and exits non-zero without
+  writing (suitable for CI or a pre-commit hook).
+
+  Every pre-existing index repair is *conditional*: `_upsert_index` and
+  `list_sessions` rebuild only when the index is missing, corrupt, or
+  structurally invalid. That left one failure mode uncovered — an index that is
+  perfectly **valid** but no longer **complete**. Because `_is_valid_index`
+  returns True for it, `list_sessions` takes the fast path and returns the stale
+  subset; nothing repairs it and nothing reports it.
+
+  Found in `agent-config` on 2026-07-31: a tracked `index.json` was reverted to
+  an older committed revision, leaving it listing **1 session while 12 existed
+  on disk**. Several of the unlisted sessions had open items. They were
+  invisible to every tool while their files sat intact in the same directory.
+
+  `reindex` reports what changed (`added` / `removed` / `updated`, before/after
+  counts, and any unreadable session files) rather than repairing silently, so
+  drift is visible after the fact instead of merely gone.
+
 ## [0.3.0] - 2026-07-31
 
 ### Breaking Changes

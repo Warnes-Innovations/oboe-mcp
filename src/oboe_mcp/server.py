@@ -48,6 +48,7 @@ from oboe_mcp.session import (
     mark_skip,
     merge_items,
     oboe_sessions_dir,
+    reindex,
     set_approval,
     session_status,
     trim_sessions,
@@ -180,6 +181,47 @@ def oboe_create(
         "items_created": len(session["items"]),
         "status": session["status"],
     }, indent=2)
+
+
+# ---------------------------------------------------------------------------
+# Tool: oboe_reindex
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def oboe_reindex(base_dir: str, write: bool = True) -> str:
+    """Rebuild index.json from the session files on disk.
+
+    Every other index repair in oboe is CONDITIONAL — it fires only when the
+    index is missing, corrupt, or structurally invalid.  That leaves one case
+    uncovered: an index that is perfectly VALID but no longer COMPLETE.  Such an
+    index is indistinguishable from a correct one to every other code path, so
+    nothing repairs it and nothing reports it, and oboe_list_sessions will
+    happily return the stale subset.
+
+    Use this when the session list looks wrong, after restoring or reverting
+    index.json, or after moving session files between directories.
+
+    Args:
+        base_dir: Project root directory
+        write: True (default) rebuilds and saves. False computes the diff and
+               reports it WITHOUT writing — a check mode for CI or a
+               pre-commit hook.
+
+    Returns a summary with added/removed/updated filename lists, before/after
+    counts, any unreadable session files, and `changed` (False when the index
+    was already accurate).
+    """
+    try:
+        _validate_base_dir(base_dir)
+    except ValueError as e:
+        return f"ERROR: {e}"
+    sessions_dir = oboe_sessions_dir(base_dir)
+    if not sessions_dir.exists():
+        return json.dumps(
+            {"sessions": [], "message": "No oboe_sessions directory found"}
+        )
+
+    return json.dumps(reindex(sessions_dir, write=write), indent=2)
 
 
 # ---------------------------------------------------------------------------

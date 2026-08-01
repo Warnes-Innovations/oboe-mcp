@@ -467,6 +467,92 @@ def _upsert_index(
     _save_index(sessions_dir, index)
 
 
+def reindex(sessions_dir: Path | str, *, write: bool = True) -> dict:
+    """Rebuild ``index.json`` unconditionally from the session files on disk.
+
+    Every other index repair in this module is *conditional*: it fires only when
+    the index is missing, corrupt, or structurally invalid (see ``_upsert_index``
+    and ``list_sessions``).  That leaves one failure mode uncovered — an index
+    that is perfectly **valid** but no longer **complete**.  A valid-but-stale
+    index is indistinguishable from a correct one to every existing code path, so
+    nothing repairs it and nothing reports it.
+
+    That is not hypothetical.  It was found in ``agent-config`` on 2026-07-31: a
+    tracked ``index.json`` was reverted to an older committed revision, leaving it
+    listing **1 session while 12 existed on disk**.  ``_is_valid_index`` returned
+    True — ``format_version`` was 1 and ``sessions`` was a list — so
+    ``list_sessions`` took the fast path and reported the single stale row.  The
+    other 11 sessions, including an in-flight one, were invisible to every tool
+    while their files sat intact in the same directory.
+
+    This function is the deliberate escape hatch: it ignores the current index
+    entirely and regenerates it from the files, which are the actual source of
+    truth.  It reports what changed rather than repairing silently, so drift is
+    visible after the fact instead of merely gone.
+
+    With ``write=False`` the rebuild is computed and compared but **not saved**,
+    which backs a ``--check`` mode for CI or a pre-commit hook.  The comparison
+    still happens under a lock, so a concurrent write cannot make the report a
+    blend of two states.
+
+    Returns a summary dict with ``added``/``removed``/``updated`` filename lists,
+    the before/after entry counts, and ``changed`` (False when the index was
+    already accurate — the common case, and worth being able to assert).
+    """
+    sessions_dir = Path(sessions_dir)
+
+    # A read-only check needs only the shared lock; a rebuild mutates and needs
+    # the exclusive one.
+    with sessions_lock(sessions_dir, exclusive=write):
+        try:
+            old = _load_index_unlocked(sessions_dir)
+            old_rows = old["sessions"] if _is_valid_index(old) else []
+        except (json.JSONDecodeError, ValueError, OSError):
+            # Unreadable or corrupt: treat as empty rather than failing.  The
+            # whole point of this call is to recover from a bad index.
+            old_rows = []
+
+        rebuilt = _rebuild_index_from_files(sessions_dir)
+        new_rows = rebuilt["sessions"]
+
+        # Guard the key type, not just the row type.  A row whose "file" is
+        # missing or non-str would put None into these sets, and the sorted()
+        # calls below raise TypeError on None — crashing the one function whose
+        # job is to recover from a malformed index.  Such rows are dropped:
+        # they name no file, so they cannot correspond to anything on disk.
+        old_by_file = {
+            r["file"]: r
+            for r in old_rows
+            if isinstance(r, dict) and isinstance(r.get("file"), str)
+        }
+        new_by_file = {r["file"]: r for r in new_rows}
+
+        added = sorted(set(new_by_file) - set(old_by_file))
+        removed = sorted(set(old_by_file) - set(new_by_file))
+        updated = sorted(
+            f for f in set(old_by_file) & set(new_by_file)
+            if old_by_file[f] != new_by_file[f]
+        )
+
+        if write:
+            _save_index(sessions_dir, rebuilt)
+
+    unreadable = sorted(
+        r["file"] for r in new_rows if r.get("status") == "unreadable"
+    )
+    return {
+        "sessions_dir": str(sessions_dir),
+        "written": write,
+        "before": len(old_rows),
+        "after": len(new_rows),
+        "added": added,
+        "removed": removed,
+        "updated": updated,
+        "unreadable": unreadable,
+        "changed": bool(added or removed or updated),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Public session operations
 # ---------------------------------------------------------------------------

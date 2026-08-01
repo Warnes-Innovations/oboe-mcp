@@ -43,6 +43,7 @@ from oboe_mcp.session import (
     mark_skip,
     merge_items,
     oboe_sessions_dir,
+    reindex,
     resolve_base_dir,
     resolve_session_file,
     session_status,
@@ -280,6 +281,30 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Shorthand for --status active",
+    )
+
+    # --- reindex ------------------------------------------------------------
+    p = sub.add_parser(
+        "reindex",
+        help="Rebuild index.json from the session files on disk",
+        description=(
+            "Rebuild index.json unconditionally from the session_*.json files "
+            "in the sessions directory. Every other index repair is "
+            "conditional -- it fires only when the index is missing, corrupt, "
+            "or structurally invalid -- which leaves a valid-but-STALE index "
+            "unrepaired and undetected. Use this when the session list looks "
+            "wrong, after restoring or reverting index.json, or after moving "
+            "session files between directories."
+        ),
+    )
+    p.add_argument(
+        "--check",
+        action="store_true",
+        default=False,
+        help=(
+            "Report drift and exit non-zero without writing. Suitable for CI "
+            "or a pre-commit check."
+        ),
     )
 
     # --- status (session-level) ---------------------------------------------
@@ -558,6 +583,56 @@ def _cmd_sessions(args: argparse.Namespace, _parser: argparse.ArgumentParser) ->
     status_filter = "active" if getattr(args, "active", False) else getattr(args, "status", None)
     rows = list_sessions(sessions_dir, status_filter=status_filter)
     _print_sessions_table(rows)
+    return 0
+
+
+def _cmd_reindex(args: argparse.Namespace, _parser: argparse.ArgumentParser) -> int:
+    sessions_dir = _get_sessions_dir(args.base_dir)
+    if not sessions_dir.exists():
+        print("No .github/oboe_sessions directory found.")
+        return 0
+
+    check_only = getattr(args, "check", False)
+    result = reindex(sessions_dir, write=not check_only)
+
+    if check_only:
+        if result["changed"]:
+            print(
+                f"index.json is STALE: {result['before']} entr"
+                f"{'y' if result['before'] == 1 else 'ies'} indexed, "
+                f"{result['after']} session file"
+                f"{'' if result['after'] == 1 else 's'} on disk."
+            )
+            for label in ("added", "removed", "updated"):
+                if result[label]:
+                    print(f"  {label} ({len(result[label])}): "
+                          f"{', '.join(result[label])}")
+            print("Run `oboe-cli reindex` to rebuild it.")
+            return 1
+        print(f"index.json is accurate ({result['after']} sessions).")
+        return 0
+
+    if not result["changed"]:
+        print(f"index.json already accurate ({result['after']} sessions). No change.")
+    else:
+        print(
+            f"Rebuilt index.json: {result['before']} -> {result['after']} entries."
+        )
+        for label, key in (("added", "added"), ("removed", "removed"),
+                           ("updated", "updated")):
+            names = result[key]
+            if names:
+                print(f"  {label} ({len(names)}):")
+                for n in names:
+                    print(f"    {n}")
+
+    if result["unreadable"]:
+        # Surfaced separately and always: these files are indexed with
+        # status 'unreadable' rather than dropped, so they cannot go missing
+        # silently, but the operator needs to know they exist.
+        print(f"  WARNING - unreadable session files ({len(result['unreadable'])}):")
+        for n in result["unreadable"]:
+            print(f"    {n}")
     return 0
 
 
@@ -902,6 +977,7 @@ def _cmd_complete_child(args: argparse.Namespace, parser: argparse.ArgumentParse
 
 _COMMAND_DISPATCH = {
     "sessions":        _cmd_sessions,
+    "reindex":         _cmd_reindex,
     "status":          _cmd_status,
     "create":          _cmd_create,
     "merge":           _cmd_merge,

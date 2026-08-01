@@ -63,6 +63,7 @@ otherwise it falls back to the working directory as-is.
 | Command | Description |
 | ------- | ----------- |
 | `sessions` | List all sessions (supports `--status active\|paused\|completed\|incomplete`) |
+| `reindex` | Rebuild `index.json` from the session files on disk (`--check` reports drift and exits non-zero without writing) |
 | `status` | Show session summary statistics |
 | `create` | Create a new session from a JSON items file |
 | `merge` | Append new items to an existing session |
@@ -108,6 +109,7 @@ oboe-cli --base-dir /path/to/project --session session_20260411_120000.json \
 | ---- | ----------- |
 | `oboe_create` | Create session file + update index.json atomically |
 | `oboe_list_sessions` | List sessions from index.json |
+| `oboe_reindex` | Rebuild index.json from the session files on disk (`write=False` to check without writing) |
 | `oboe_session_status` | Summary stats for a session |
 | `oboe_next` | Next item: in_progress first, then highest-priority pending, then deferred |
 | `oboe_list_items` | All items sorted by priority_score desc |
