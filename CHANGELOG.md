@@ -71,6 +71,15 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
   instead of what was selected (a row with no `file` was previously counted as
   a deletion that never happened).
 
+- **`complete_child_session` could wedge a parent session permanently.** It
+  called `.get` on `blocker` without checking it was still a dict, and
+  `oboe_update_field` documents itself as setting *any* field. After
+  `blocker` had been set to a string, completing the child raised
+  `AttributeError` — but only after the child had already been written
+  completed, leaving the parent `paused` with a dangling
+  `active_child_session` that no tool could clear. Retrying failed the same
+  way. The shape is now checked.
+
 - **`oboe_create` accepted duplicate item ids; `oboe_merge_items` rejected
   them.** A second item sharing an id is unreachable — every lookup resolves
   to the first — so it could never be completed or skipped and the session
@@ -86,11 +95,54 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
   name is checked against the documented item schema instead of being written
   through.
 
+- **A structurally-valid `index.json` with unusable rows crashed every write.**
+  `_is_valid_index` checked only the top level, so `{"sessions": ["oops"]}`
+  passed and `_upsert_index` then raised `TypeError: string indices must be
+  integers` — *after* `atomic_write_json` had already written the session
+  file, leaving session and index out of step on every mutating call.
+  `list_sessions` handed the same rows back to callers, which failed on
+  `.get`. Row shape is now part of validity, so both route through the
+  rebuild-from-disk repair this index already had. `reindex` carried a comment
+  about exactly this hazard; its neighbours never got the guard.
+
 - **`oboe_trim_sessions` crashed on a timezone-aware `before`.** `created` is
   parsed from a bare `YYYY-MM-DD` and is naive, so an ISO-8601 string with an
   offset — the likeliest form for a machine to emit — raised
   `TypeError: can't compare offset-naive and offset-aware datetimes` from
   inside a delete operation. An aware cutoff is now converted to local naive.
+
+- **A malformed session file was diagnosed in the interpreter's vocabulary.**
+  `json.load` guarantees valid JSON, not a valid session, and these files are
+  hand-editable and synced between machines. `"items": "oops"` produced
+  `dictionary update sequence element #0 has length 1`, `"items": [null]`
+  produced `'NoneType' object is not iterable`, and a top-level list produced
+  `'list' object has no attribute 'get'` — none naming the file. Loading now
+  checks the container shape and reports e.g. `Malformed session file
+  session_20260411_120000.json: item #1 must be an object, got NoneType`. The
+  same check applies to the `items` argument on the way in. Field-level rules
+  stay where they were, so a file whose *values* predate a constraint still
+  loads.
+
+  This also closed a latent crash: `child_session_files` was never checked to
+  be a list, and `create_child_session` appends to it.
+
+- **Eight `oboe-cli` commands printed a traceback instead of an error.**
+  `main()` caught only `FileNotFoundError` and `LockError`, so `status`,
+  `list`, `show` and five others surfaced a raw `ValueError`/`KeyError` — a
+  merely malformed session file produced a traceback. `main()` now reports
+  those as `❌ <message>` with exit 1. Deliberately not a blanket
+  `except Exception`: unlike an MCP client, a CLI user is served by a
+  traceback when something is genuinely a defect.
+
+- **Unhandled exceptions reached the MCP client raw.** `_TOOL_EXCEPTIONS`
+  covered `OSError`, `ValueError`, `JSONDecodeError` and `LockError`; 14 of
+  the 23 tools did not catch even `KeyError`, and nothing caught `TypeError`
+  or `AttributeError` — which is why issue #20 surfaced as a bare interpreter
+  message. Every tool is now registered behind `_tool_boundary`, which
+  converts anything unhandled into
+  `ERROR: internal error in <tool> (<ExceptionType>): …`. It is a backstop,
+  not a substitute for handling: the wording keeps a defect legible as a
+  defect rather than disguising it as input rejection.
 
 - **A session holding both string and integer item ids crashed `oboe_next`
   and `oboe_list_items`.** `id` is documented as "string or integer" and both

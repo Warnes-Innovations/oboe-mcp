@@ -225,6 +225,7 @@ Index maintenance behavior:
 
 - Mutating session operations update the corresponding `index.json` entry.
 - Listing sessions can rebuild the entire index when the stored index is absent or invalid.
+- An index is *invalid* if any row is not an object carrying a string `file`, not merely if the top level is wrong. Such rows are never consumed; the index is rebuilt from the session files instead.
 - `oboe_trim_sessions` deletes only rows whose `file` is a bare, well-formed session filename that resolves inside the sessions directory. Anything else — a path, a traversal, a symlink out of the tree — is refused, reported under `rejected`, and left on disk. Its `deleted` list records what was actually removed, not what was selected.
 - `index.json` should be treated as a managed artifact, not hand-edited application state.
 

@@ -145,9 +145,65 @@ def load_session(session_file: Path) -> dict:
 
 
 def _load_session_unlocked(session_file: Path) -> dict:
-    """Read a session file assuming the caller already holds the lock."""
+    """Read a session file assuming the caller already holds the lock.
+
+    Raises:
+        ValueError: the file parses as JSON but is not a session document.
+    """
     with open(session_file, "r", encoding="utf-8") as f:
-        return json.load(f)
+        return _require_session_document(json.load(f), session_file)
+
+
+def _require_session_document(document: object, session_file: Path) -> dict:
+    """Check that *document* has the container shape the rest of this module
+    assumes, and say which file is wrong when it does not.
+
+    ``json.load`` only guarantees *valid JSON*, not a valid session.  Session
+    files are hand-editable, are synced between machines, and can be written by
+    other tooling, so a structurally wrong one is an ordinary occurrence rather
+    than an internal error.  Without this the shape was discovered by whatever
+    touched it first, in the vocabulary of the interpreter rather than of the
+    session store:
+
+    ======================  =======================================
+    file contains           error the caller used to see
+    ======================  =======================================
+    ``"items": "oops"``     dictionary update sequence element #0…
+    ``"items": [null]``     'NoneType' object is not iterable
+    a top-level list        'list' object has no attribute 'get'
+    ======================  =======================================
+
+    Only the containers are checked here.  Field-level rules stay in
+    :func:`_normalize_item`, which has to keep loading older files whose values
+    predate a constraint — see :func:`_score_value`.
+    """
+    where = f"Malformed session file {session_file.name}"
+    if not isinstance(document, dict):
+        raise ValueError(
+            f"{where}: expected a JSON object, got "
+            f"{type(document).__name__}"
+        )
+
+    items = document.get("items", [])
+    if not isinstance(items, list):
+        raise ValueError(
+            f"{where}: 'items' must be a list, got {type(items).__name__}"
+        )
+    for position, item in enumerate(items, start=1):
+        if not isinstance(item, dict):
+            raise ValueError(
+                f"{where}: item #{position} must be an object, got "
+                f"{type(item).__name__}"
+            )
+
+    children = document.get("child_session_files", [])
+    if not isinstance(children, list):
+        raise ValueError(
+            f"{where}: 'child_session_files' must be a list, got "
+            f"{type(children).__name__}"
+        )
+
+    return document
 
 
 def save_session(session_file: Path, session: dict) -> None:
@@ -531,12 +587,32 @@ def _index_path(sessions_dir: Path) -> Path:
     return sessions_dir / "index.json"
 
 
+def _is_valid_row(row: object) -> bool:
+    """Return True if *row* is usable as an index entry.
+
+    A row is only ever consumed by ``file``, so that is what has to be there
+    and has to be a string.
+    """
+    return isinstance(row, dict) and isinstance(row.get("file"), str)
+
+
 def _is_valid_index(index: object) -> bool:
-    """Return True if *index* has the expected top-level structure."""
+    """Return True if *index* has the expected structure, rows included.
+
+    The row check is not incidental.  Validating only the top level let a
+    structurally-valid index carry unusable rows straight into code that
+    assumes the shape: ``_upsert_index`` raised ``TypeError: string indices
+    must be integers`` — *after* the session file had already been written, so
+    every write path left the session and its index out of step — and
+    ``list_sessions`` handed the malformed rows back to its caller, which then
+    failed on ``.get``.  Rejecting them here routes both through the rebuild
+    path instead, which is the repair this index already has.
+    """
     return (
         isinstance(index, dict)
         and index.get("format_version") == 1
         and isinstance(index.get("sessions"), list)
+        and all(_is_valid_row(row) for row in index["sessions"])
     )
 
 
@@ -1485,7 +1561,14 @@ def complete_child_session(
         parent_item_id = child_session.get("parent_item_id")
         if parent_item_id is not None:
             parent_item = _require_item(parent_session, parent_item_id)
-            blocker = parent_item.get("blocker") or {}
+            # `blocker` is stored as a dict but nothing guarantees it stayed
+            # one — oboe_update_field sets any field to any value.  A bare
+            # `.get` on a string raised AttributeError *after* the child had
+            # already been written completed, leaving the parent paused with a
+            # dangling active_child_session and no tool able to clear it.
+            blocker = parent_item.get("blocker")
+            if not isinstance(blocker, dict):
+                blocker = {}
             if blocker.get("session_file") == child_session_file.name:
                 parent_item["status"] = "pending"
                 _clear_blocker_fields(parent_item)

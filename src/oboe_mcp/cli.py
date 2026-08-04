@@ -1084,6 +1084,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     except LockError as exc:
         print(f"❌ {exc}", file=sys.stderr)
         return 1
+    except (ValueError, KeyError) as exc:
+        # The domain errors: a rejected value, a malformed session file, a
+        # missing item.  Handlers that want a more specific message still
+        # catch these themselves; this is the backstop for the ones that do
+        # not, of which there were eight — `status`, `list` and `show` all
+        # printed a traceback for a session file that was merely malformed.
+        #
+        # Deliberately NOT a blanket `except Exception`.  Unlike the MCP
+        # server, whose client cannot act on a traceback, a CLI traceback is
+        # the conventional and useful signal that something is a defect rather
+        # than bad input — so an unexpected type should still surface as one.
+        print(f"❌ {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

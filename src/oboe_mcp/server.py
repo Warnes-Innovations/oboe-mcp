@@ -13,6 +13,7 @@ Uses MCPServer for concise tool registration.
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import os
 import sys
@@ -59,6 +60,45 @@ from oboe_mcp.session import (
 )
 
 mcp = MCPServer("oboe-mcp", instructions="One-By-One session management tools")
+
+
+# ---------------------------------------------------------------------------
+# Last-resort error boundary
+# ---------------------------------------------------------------------------
+
+def _tool_boundary(fn):
+    """Turn any exception a tool did not handle into a labelled error string.
+
+    Each tool catches what it *expects*; `_TOOL_EXCEPTIONS` covers OSError,
+    ValueError, JSONDecodeError and LockError.  Everything else — KeyError,
+    TypeError, AttributeError — propagated raw to the MCP client, which is
+    what issue #20 looked like from the outside:
+
+        Error executing tool oboe_create: unsupported operand type(s) for +
+
+    A raw interpreter error tells the caller nothing it can act on, and 14 of
+    the 23 tools did not even catch KeyError.  This is a backstop, not a
+    substitute for handling: the message says *internal error* and names the
+    exception type, so a defect that reaches here still reads as a defect
+    rather than as ordinary input rejection.
+    """
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as exc:  # noqa: BLE001 - deliberate outermost catch
+            return (
+                f"ERROR: internal error in {fn.__name__} "
+                f"({type(exc).__name__}): {exc}"
+            )
+    return wrapper
+
+
+def tool():
+    """Register an MCP tool behind :func:`_tool_boundary`."""
+    def decorate(fn):
+        return mcp.tool()(_tool_boundary(fn))
+    return decorate
 
 
 # ---------------------------------------------------------------------------
@@ -235,7 +275,7 @@ def _resolve(session_file: str, base_dir: str | None = None) -> Path:
 # Tool: oboe_create
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool()
 def oboe_create(
     base_dir: str,
     title: str,
@@ -309,7 +349,7 @@ def oboe_create(
 # Tool: oboe_reindex
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool()
 def oboe_reindex(base_dir: str, write: bool = True) -> str:
     """Rebuild index.json from the session files on disk.
 
@@ -350,7 +390,7 @@ def oboe_reindex(base_dir: str, write: bool = True) -> str:
 # Tool: oboe_list_sessions
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool()
 def oboe_list_sessions(
     base_dir: str,
     status_filter: Optional[str] = None,
@@ -383,7 +423,7 @@ def oboe_list_sessions(
 # Tool: oboe_session_status
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool()
 def oboe_session_status(
     session_file: str,
     base_dir: Optional[str] = None,
@@ -406,7 +446,7 @@ def oboe_session_status(
 # Tool: oboe_get_session
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool()
 def oboe_get_session(
     session_file: str,
     base_dir: Optional[str] = None,
@@ -448,7 +488,7 @@ def oboe_get_session(
 # Tool: oboe_next
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool()
 def oboe_next(
     session_file: str,
     base_dir: Optional[str] = None,
@@ -528,7 +568,7 @@ def oboe_next(
 # Tool: oboe_list_items
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool()
 def oboe_list_items(
     session_file: str,
     base_dir: Optional[str] = None,
@@ -553,7 +593,7 @@ def oboe_list_items(
 # Tool: oboe_get_item
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool()
 def oboe_get_item(
     session_file: str,
     item_id: str,
@@ -580,7 +620,7 @@ def oboe_get_item(
 # Tool: oboe_mark_complete
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool()
 def oboe_mark_complete(
     session_file: str,
     item_id: str,
@@ -623,7 +663,7 @@ def oboe_mark_complete(
 # Tool: oboe_mark_skip
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool()
 def oboe_mark_skip(
     session_file: str,
     item_id: str,
@@ -660,7 +700,7 @@ def oboe_mark_skip(
 # Tool: oboe_mark_deferred
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool()
 def oboe_mark_deferred(
     session_file: str,
     item_id: str,
@@ -697,7 +737,7 @@ def oboe_mark_deferred(
 # Tool: oboe_mark_blocked
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool()
 def oboe_mark_blocked(
     session_file: str,
     item_id: str,
@@ -736,7 +776,7 @@ def oboe_mark_blocked(
 # Tool: oboe_set_approval
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool()
 def oboe_set_approval(
     session_file: str,
     item_id: str,
@@ -788,7 +828,7 @@ def oboe_set_approval(
 # ---------------------------------------------------------------------------
 
 
-@mcp.tool()
+@tool()
 def oboe_mark_in_progress(
     session_file: str,
     item_id: str,
@@ -821,7 +861,7 @@ def oboe_mark_in_progress(
         return f"ERROR: {e}"
 
 
-@mcp.tool()
+@tool()
 def oboe_complete_session(
     session_file: str,
     base_dir: Optional[str] = None,
@@ -854,7 +894,7 @@ def oboe_complete_session(
         return f"ERROR: {e}"
 
 
-@mcp.tool()
+@tool()
 def oboe_create_child_session(
     parent_session_file: str,
     title: str,
@@ -914,7 +954,7 @@ def oboe_create_child_session(
         return f"ERROR: {e}"
 
 
-@mcp.tool()
+@tool()
 def oboe_complete_child_session(
     child_session_file: str,
     base_dir: Optional[str] = None,
@@ -953,7 +993,7 @@ def oboe_complete_child_session(
         return f"ERROR: {e}"
 
 
-@mcp.tool()
+@tool()
 def oboe_merge_items(
     session_file: str,
     items: ItemList,
@@ -991,7 +1031,7 @@ def oboe_merge_items(
         return f"ERROR: {e}"
 
 
-@mcp.tool()
+@tool()
 def oboe_update_field(
     session_file: str,
     item_id: str,
@@ -1039,7 +1079,7 @@ def oboe_update_field(
         return f"ERROR: {e}"
 
 
-@mcp.tool()
+@tool()
 def oboe_cancel_session(
     session_file: str,
     base_dir: Optional[str] = None,
@@ -1069,7 +1109,7 @@ def oboe_cancel_session(
         return f"ERROR: {e}"
 
 
-@mcp.tool()
+@tool()
 def oboe_trim_sessions(
     base_dir: str,
     before: Optional[str] = None,
@@ -1115,7 +1155,7 @@ def oboe_trim_sessions(
 # ---------------------------------------------------------------------------
 # Tool: oboe_set_lock_policy
 # ---------------------------------------------------------------------------
-@mcp.tool()
+@tool()
 def oboe_set_lock_policy(
     blocking: bool = True,
     timeout_seconds: Optional[float] = DEFAULT_TIMEOUT,
@@ -1166,7 +1206,7 @@ def oboe_set_lock_policy(
 # ---------------------------------------------------------------------------
 # Tool: oboe_get_lock_policy
 # ---------------------------------------------------------------------------
-@mcp.tool()
+@tool()
 def oboe_get_lock_policy() -> str:
     """Report the lock policy currently in effect for this server process."""
     try:
