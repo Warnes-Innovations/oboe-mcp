@@ -56,6 +56,21 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
   values on disk, so applying the range to the load path would make a
   previously readable session file unloadable.
 
+- **`trim_sessions` deleted files outside the sessions directory.** It joined
+  each `index.json` row's `file` onto the sessions directory and unlinked the
+  result, unchecked. A row of `../../IMPORTANT.txt` destroyed that file and
+  still reported it as a deleted session. `index.json` is routinely committed
+  and synced between machines, so its contents are not this code's to trust.
+
+  `_deletable_session` now applies three independent checks and refuses on any
+  one: the name must match `session_YYYYMMDD_HHMMSS.json`, must be a bare
+  filename, and must resolve with the sessions directory as its parent — the
+  last being what catches a symlink pointing out of the tree, which neither
+  name check can see. Refused rows are reported under a new `rejected` key
+  rather than dropped, and `deleted` now lists what was actually unlinked
+  instead of what was selected (a row with no `file` was previously counted as
+  a deletion that never happened).
+
 - **`oboe_create` accepted duplicate item ids; `oboe_merge_items` rejected
   them.** A second item sharing an id is unreachable — every lookup resolves
   to the first — so it could never be completed or skipped and the session
@@ -70,6 +85,12 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
   field name at all.** Setting `id` is now refused outright, and the field
   name is checked against the documented item schema instead of being written
   through.
+
+- **`oboe_trim_sessions` crashed on a timezone-aware `before`.** `created` is
+  parsed from a bare `YYYY-MM-DD` and is naive, so an ISO-8601 string with an
+  offset — the likeliest form for a machine to emit — raised
+  `TypeError: can't compare offset-naive and offset-aware datetimes` from
+  inside a delete operation. An aware cutoff is now converted to local naive.
 
 - **A session holding both string and integer item ids crashed `oboe_next`
   and `oboe_list_items`.** `id` is documented as "string or integer" and both

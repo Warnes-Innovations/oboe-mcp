@@ -1202,6 +1202,48 @@ def cancel_session(session_file: Path, reason: str = "") -> dict:
     return session
 
 
+def _deletable_session(sessions_dir: Path, filename: str) -> Path:
+    """Resolve *filename* to a session file that is safe to delete.
+
+    ``trim_sessions`` decides what to remove from ``index.json``, and an index
+    row's ``file`` is not something this code wrote — it is whatever is on
+    disk, in a file that is routinely committed and synced between machines.
+    Joining it onto the sessions directory unchecked deleted a file *outside*
+    that directory: a planted row of ``../../IMPORTANT.txt`` was unlinked and
+    still reported as a deleted session.
+
+    Three independent checks, and a failure of any one is a refusal:
+
+    1. the name matches the documented ``session_YYYYMMDD_HHMMSS.json`` form,
+       which admits no separator and no ``..``;
+    2. it is a bare filename, with no directory part of its own;
+    3. the resolved path's parent is the resolved sessions directory — which
+       is what catches a symlink pointing out of the tree, something neither
+       name check can see.
+
+    Raises:
+        ValueError: naming the reason, if any check fails.
+    """
+    if not isinstance(filename, str) or not filename:
+        raise ValueError("index row has no usable 'file' name")
+
+    validate_session_filename(filename)   # (1)
+
+    candidate = Path(filename)
+    if candidate.name != filename or candidate.is_absolute():   # (2)
+        raise ValueError("must be a bare filename, not a path")
+
+    target = sessions_dir / filename
+    resolved_dir = sessions_dir.resolve()
+    # resolve() on the file itself follows a symlink to its destination, which
+    # is exactly the case check (3) exists to catch.
+    if target.resolve().parent != resolved_dir:   # (3)
+        raise ValueError(
+            f"resolves outside the sessions directory ({resolved_dir})"
+        )
+    return target
+
+
 def trim_sessions(
     sessions_dir: Path,
     before: datetime | str | None = None,
@@ -1221,8 +1263,10 @@ def trim_sessions(
             files.
 
     Returns:
-        A dict with keys ``deleted`` (list of filenames removed) and
-        ``retained`` (list of filenames kept), plus ``dry_run`` bool.
+        A dict with keys ``deleted`` (files actually removed — on a dry run,
+        those that would be), ``retained`` (files kept), and ``rejected``
+        (index rows naming something this function refuses to touch), plus
+        ``dry_run`` bool.
 
     Raises:
         ValueError: if *before* is not parseable as a datetime.
@@ -1247,6 +1291,13 @@ def trim_sessions(
         else:
             cutoff = before
 
+    # `created` is parsed from a bare YYYY-MM-DD and is therefore naive.  An
+    # ISO-8601 string carrying an offset — the most likely form for a machine
+    # to emit — produced an aware cutoff, and comparing the two raised
+    # TypeError from inside a delete operation.
+    if cutoff is not None and cutoff.tzinfo is not None:
+        cutoff = cutoff.astimezone().replace(tzinfo=None)
+
     # Deciding what to delete and deleting it must be one atomic step: the
     # decision is made from the index, and a concurrent mutation between the
     # two would shift the ground under it.
@@ -1254,6 +1305,8 @@ def trim_sessions(
         rows = list_sessions(sessions_dir)
         deleted: list[str] = []
         retained: list[str] = []
+        rejected: list[str] = []
+        targets: list[tuple[str, Path]] = []
 
         for row in rows:
             filename = row.get("file", "")
@@ -1276,15 +1329,26 @@ def trim_sessions(
                     retained.append(filename)
                     continue
 
-            deleted.append(filename)
+            try:
+                targets.append((filename, _deletable_session(
+                    sessions_dir, filename
+                )))
+            except ValueError as exc:
+                rejected.append(f"{filename!r}: {exc}")
 
-        if not dry_run:
-            for filename in deleted:
-                sf = sessions_dir / filename
+        if dry_run:
+            deleted = [name for name, _ in targets]
+        else:
+            for filename, path in targets:
                 try:
-                    sf.unlink(missing_ok=True)
-                except OSError:
-                    pass
+                    path.unlink()
+                except FileNotFoundError:
+                    # Already gone: the row was stale, not a deletion we did.
+                    continue
+                except OSError as exc:
+                    rejected.append(f"{filename!r}: {exc}")
+                    continue
+                deleted.append(filename)
             # Rebuild index from surviving files
             rebuilt = _rebuild_index_from_files(sessions_dir)
             _save_index(sessions_dir, rebuilt)
@@ -1292,9 +1356,11 @@ def trim_sessions(
     return {
         "deleted":  deleted,
         "retained": retained,
+        "rejected": rejected,
         "dry_run":  dry_run,
         "total_deleted":  len(deleted),
         "total_retained": len(retained),
+        "total_rejected": len(rejected),
     }
 
 

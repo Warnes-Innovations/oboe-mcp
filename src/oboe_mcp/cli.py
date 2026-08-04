@@ -770,6 +770,22 @@ def _cmd_trim_sessions(args: argparse.Namespace, parser: argparse.ArgumentParser
         print(f"  - {name}")
     if result["total_retained"]:
         print(f"Retained: {result['total_retained']} session(s)")
+    # A refused row must be reported, never dropped: it means index.json names
+    # something this command declined to delete, and silence would read as
+    # "nothing to see" on a destructive operation.
+    if result.get("total_rejected"):
+        print(
+            f"\n⚠️  Refused {result['total_rejected']} index row(s) — "
+            "not deleted:",
+            file=sys.stderr,
+        )
+        for note in result["rejected"]:
+            print(f"  - {note}", file=sys.stderr)
+        print(
+            "Run 'oboe-cli reindex' to rebuild index.json from the session "
+            "files on disk.",
+            file=sys.stderr,
+        )
     return 0
 
 
