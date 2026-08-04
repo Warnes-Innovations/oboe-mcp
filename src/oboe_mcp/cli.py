@@ -43,6 +43,7 @@ from oboe_mcp.session import (
     mark_skip,
     merge_items,
     oboe_sessions_dir,
+    reindex,
     resolve_base_dir,
     resolve_session_file,
     session_status,
@@ -189,7 +190,12 @@ def _print_session_status(stats: dict) -> None:
     categories = stats.get("categories", {})
     if categories:
         print("\nBy Category:")
-        for cat, counts in sorted(categories.items()):
+        # Sort on str(), not the raw key.  `category` is free-form caller
+        # input and is never type-checked, so one session can hold both 5 and
+        # "General" — and ordering those directly raises TypeError, taking
+        # down a read-only status display.  Same class as _id_sort_key.
+        by_name = sorted(categories.items(), key=lambda kv: str(kv[0]))
+        for cat, counts in by_name:
             cat_total = counts.get("total", 0)
             cat_done  = counts.get("completed", 0)
             cat_pct   = (100 * cat_done // cat_total) if cat_total else 0
@@ -280,6 +286,30 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Shorthand for --status active",
+    )
+
+    # --- reindex ------------------------------------------------------------
+    p = sub.add_parser(
+        "reindex",
+        help="Rebuild index.json from the session files on disk",
+        description=(
+            "Rebuild index.json unconditionally from the session_*.json files "
+            "in the sessions directory. Every other index repair is "
+            "conditional -- it fires only when the index is missing, corrupt, "
+            "or structurally invalid -- which leaves a valid-but-STALE index "
+            "unrepaired and undetected. Use this when the session list looks "
+            "wrong, after restoring or reverting index.json, or after moving "
+            "session files between directories."
+        ),
+    )
+    p.add_argument(
+        "--check",
+        action="store_true",
+        default=False,
+        help=(
+            "Report drift and exit non-zero without writing. Suitable for CI "
+            "or a pre-commit check."
+        ),
     )
 
     # --- status (session-level) ---------------------------------------------
@@ -561,6 +591,56 @@ def _cmd_sessions(args: argparse.Namespace, _parser: argparse.ArgumentParser) ->
     return 0
 
 
+def _cmd_reindex(args: argparse.Namespace, _parser: argparse.ArgumentParser) -> int:
+    sessions_dir = _get_sessions_dir(args.base_dir)
+    if not sessions_dir.exists():
+        print("No .github/oboe_sessions directory found.")
+        return 0
+
+    check_only = getattr(args, "check", False)
+    result = reindex(sessions_dir, write=not check_only)
+
+    if check_only:
+        if result["changed"]:
+            print(
+                f"index.json is STALE: {result['before']} entr"
+                f"{'y' if result['before'] == 1 else 'ies'} indexed, "
+                f"{result['after']} session file"
+                f"{'' if result['after'] == 1 else 's'} on disk."
+            )
+            for label in ("added", "removed", "updated"):
+                if result[label]:
+                    print(f"  {label} ({len(result[label])}): "
+                          f"{', '.join(result[label])}")
+            print("Run `oboe-cli reindex` to rebuild it.")
+            return 1
+        print(f"index.json is accurate ({result['after']} sessions).")
+        return 0
+
+    if not result["changed"]:
+        print(f"index.json already accurate ({result['after']} sessions). No change.")
+    else:
+        print(
+            f"Rebuilt index.json: {result['before']} -> {result['after']} entries."
+        )
+        for label, key in (("added", "added"), ("removed", "removed"),
+                           ("updated", "updated")):
+            names = result[key]
+            if names:
+                print(f"  {label} ({len(names)}):")
+                for n in names:
+                    print(f"    {n}")
+
+    if result["unreadable"]:
+        # Surfaced separately and always: these files are indexed with
+        # status 'unreadable' rather than dropped, so they cannot go missing
+        # silently, but the operator needs to know they exist.
+        print(f"  WARNING - unreadable session files ({len(result['unreadable'])}):")
+        for n in result["unreadable"]:
+            print(f"    {n}")
+    return 0
+
+
 def _cmd_status(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     sf    = _require_session(args, parser)
     stats = session_status(sf)
@@ -602,7 +682,10 @@ def _cmd_create(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
             title=args.title,
             description=args.description,
         )
-    except FileExistsError as exc:
+    except (FileExistsError, ValueError, KeyError) as exc:
+        # ValueError covers item validation (score components, status); its
+        # siblings _cmd_merge and _cmd_create_child already caught it, and
+        # main() does not, so it escaped from here as a bare traceback.
         print(f"❌ {exc}", file=sys.stderr)
         return 1
     print(f"✓ Session created: {sf.name}")
@@ -687,6 +770,22 @@ def _cmd_trim_sessions(args: argparse.Namespace, parser: argparse.ArgumentParser
         print(f"  - {name}")
     if result["total_retained"]:
         print(f"Retained: {result['total_retained']} session(s)")
+    # A refused row must be reported, never dropped: it means index.json names
+    # something this command declined to delete, and silence would read as
+    # "nothing to see" on a destructive operation.
+    if result.get("total_rejected"):
+        print(
+            f"\n⚠️  Refused {result['total_rejected']} index row(s) — "
+            "not deleted:",
+            file=sys.stderr,
+        )
+        for note in result["rejected"]:
+            print(f"  - {note}", file=sys.stderr)
+        print(
+            "Run 'oboe-cli reindex' to rebuild index.json from the session "
+            "files on disk.",
+            file=sys.stderr,
+        )
     return 0
 
 
@@ -704,7 +803,10 @@ def _cmd_next(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     except ValueError as exc:
         print(f"❌ {exc}", file=sys.stderr)
         return 1
-    if getattr(args, "mark_in_progress", False):
+    # get_next returns None when nothing is actionable. There is no item to
+    # mark, and _print_next already reports that case -- so fall through to it
+    # rather than dereferencing None.
+    if item is not None and getattr(args, "mark_in_progress", False):
         try:
             mark_in_progress(sf, item["id"])
         except (KeyError, ValueError) as exc:
@@ -902,6 +1004,7 @@ def _cmd_complete_child(args: argparse.Namespace, parser: argparse.ArgumentParse
 
 _COMMAND_DISPATCH = {
     "sessions":        _cmd_sessions,
+    "reindex":         _cmd_reindex,
     "status":          _cmd_status,
     "create":          _cmd_create,
     "merge":           _cmd_merge,
@@ -979,6 +1082,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"❌ Session file not found: {fname}", file=sys.stderr)
         return 1
     except LockError as exc:
+        print(f"❌ {exc}", file=sys.stderr)
+        return 1
+    except (ValueError, KeyError) as exc:
+        # The domain errors: a rejected value, a malformed session file, a
+        # missing item.  Handlers that want a more specific message still
+        # catch these themselves; this is the backstop for the ones that do
+        # not, of which there were eight — `status`, `list` and `show` all
+        # printed a traceback for a session file that was merely malformed.
+        #
+        # Deliberately NOT a blanket `except Exception`.  Unlike the MCP
+        # server, whose client cannot act on a traceback, a CLI traceback is
+        # the conventional and useful signal that something is a defect rather
+        # than bad input — so an unexpected type should still surface as one.
         print(f"❌ {exc}", file=sys.stderr)
         return 1
 

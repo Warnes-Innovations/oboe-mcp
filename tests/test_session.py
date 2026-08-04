@@ -26,6 +26,7 @@ from oboe_mcp.session import (
     mark_skip,
     merge_items,
     oboe_sessions_dir,
+    reindex,
     resolve_session_file,
     set_approval,
     session_status,
@@ -1254,3 +1255,180 @@ def test_trim_sessions_rebuilds_index(sessions_dir, sample_items):
     rows = list_sessions(sessions_dir)
     assert not any(r["file"] == sf.name for r in rows)
     assert any(r["file"] == sf2.name for r in rows)
+
+
+# ---------------------------------------------------------------------------
+# reindex
+# ---------------------------------------------------------------------------
+
+def test_reindex_repairs_valid_but_stale_index(sessions_dir, sample_items):
+    """The regression this function exists for.
+
+    A *structurally valid* index that has fallen behind the files on disk is
+    invisible to every conditional repair path: ``_is_valid_index`` returns
+    True, so ``list_sessions`` takes the fast path and reports the stale
+    subset.  Found in agent-config on 2026-07-31 with 1 entry for 12 files.
+    """
+    for stamp, title in (("120000", "One"), ("130000", "Two"), ("140000", "Three")):
+        create_session(
+            sessions_dir / f"session_20260314_{stamp}.json",
+            sample_items,
+            title=title,
+        )
+
+    idx_path = sessions_dir / "index.json"
+    full = json.loads(idx_path.read_text())
+    assert len(full["sessions"]) == 3
+
+    # Truncate to one entry, keeping the structure entirely valid.
+    stale = {
+        "format_version": 1,
+        "last_updated": full["last_updated"],
+        "sessions": full["sessions"][:1],
+    }
+    idx_path.write_text(json.dumps(stale))
+
+    # Precondition: the index is valid, so nothing else repairs it and
+    # list_sessions reports the stale subset rather than the truth on disk.
+    assert _is_valid_index(json.loads(idx_path.read_text()))
+    assert len(list_sessions(sessions_dir)) == 1
+
+    result = reindex(sessions_dir)
+
+    assert result["changed"] is True
+    assert result["before"] == 1
+    assert result["after"] == 3
+    assert len(result["added"]) == 2
+    assert result["removed"] == []
+    assert len(list_sessions(sessions_dir)) == 3
+
+
+def test_reindex_is_noop_when_index_is_accurate(sessions_dir, sample_items):
+    create_session(
+        sessions_dir / "session_20260314_120000.json", sample_items, title="One"
+    )
+    result = reindex(sessions_dir)
+    assert result["changed"] is False
+    assert result["added"] == []
+    assert result["removed"] == []
+    assert result["updated"] == []
+
+
+def test_reindex_drops_entries_for_deleted_files(sessions_dir, sample_items):
+    sf = sessions_dir / "session_20260314_120000.json"
+    create_session(sf, sample_items, title="Doomed")
+    sf.unlink()
+
+    result = reindex(sessions_dir)
+
+    assert result["changed"] is True
+    assert result["removed"] == ["session_20260314_120000.json"]
+    assert result["after"] == 0
+
+
+def test_reindex_check_mode_does_not_write(sessions_dir, sample_items):
+    create_session(
+        sessions_dir / "session_20260314_120000.json", sample_items, title="One"
+    )
+    idx_path = sessions_dir / "index.json"
+    idx_path.write_text(
+        json.dumps({"format_version": 1, "last_updated": "", "sessions": []})
+    )
+    before = idx_path.read_text()
+
+    result = reindex(sessions_dir, write=False)
+
+    assert result["changed"] is True
+    assert result["written"] is False
+    assert idx_path.read_text() == before, "check mode must not write"
+
+    # And the writing call does repair it.
+    assert reindex(sessions_dir)["changed"] is True
+    assert len(list_sessions(sessions_dir)) == 1
+
+
+def test_reindex_recovers_from_corrupt_index(sessions_dir, sample_items):
+    create_session(
+        sessions_dir / "session_20260314_120000.json", sample_items, title="One"
+    )
+    (sessions_dir / "index.json").write_text("{ not json at all")
+
+    result = reindex(sessions_dir)
+
+    assert result["before"] == 0
+    assert result["after"] == 1
+    assert len(list_sessions(sessions_dir)) == 1
+
+
+def test_reindex_survives_index_rows_without_a_file_key(sessions_dir, sample_items):
+    """A row lacking "file" must not crash the repair path.
+
+    ``sorted()`` raises TypeError on a set containing None, so an index row
+    with no usable filename would break the one function whose job is to
+    recover from a malformed index.
+    """
+    create_session(
+        sessions_dir / "session_20260314_120000.json", sample_items, title="One"
+    )
+    (sessions_dir / "index.json").write_text(json.dumps({
+        "format_version": 1,
+        "last_updated": "",
+        "sessions": [{"title": "no file key"}, {"file": None}],
+    }))
+
+    result = reindex(sessions_dir)
+
+    assert result["after"] == 1
+    assert result["removed"] == []   # unusable rows are dropped, not reported
+    assert len(list_sessions(sessions_dir)) == 1
+
+
+def test_reindex_indexes_unreadable_files_rather_than_dropping_them(
+    sessions_dir, sample_items
+):
+    create_session(
+        sessions_dir / "session_20260314_120000.json", sample_items, title="Good"
+    )
+    (sessions_dir / "session_20260314_130000.json").write_text("{ truncated")
+
+    result = reindex(sessions_dir)
+
+    assert result["after"] == 2, "an unreadable file must still be indexed"
+    assert result["unreadable"] == ["session_20260314_130000.json"]
+
+
+def test_reindex_does_not_rewrite_an_accurate_index(sessions_dir, sample_items):
+    """A no-op run must leave the file byte-identical.
+
+    _save_index stamps last_updated, so an unconditional write turns every
+    no-op into a one-line diff — churn in a versioned session store, on a
+    command meant to be safe to run whenever the list looks wrong.
+    """
+    create_session(
+        sessions_dir / "session_20260314_120000.json", sample_items, title="One"
+    )
+    idx_path = sessions_dir / "index.json"
+    before = idx_path.read_bytes()
+
+    result = reindex(sessions_dir)
+
+    assert result["changed"] is False
+    assert result["written"] is False
+    assert idx_path.read_bytes() == before, "no-op run must not rewrite the file"
+
+
+def test_reindex_rewrites_a_corrupt_index_even_when_rows_match(sessions_dir):
+    """Corrupt bytes must not survive a repair that reported success.
+
+    With no session files the rebuild is empty, so row comparison finds
+    nothing changed — but the file on disk is still unparsable and must be
+    replaced.
+    """
+    idx_path = sessions_dir / "index.json"
+    idx_path.write_text("{ not json at all")
+
+    result = reindex(sessions_dir)
+
+    assert result["changed"] is False   # no rows differ; both sides empty
+    assert result["written"] is True    # ...but the corrupt file was replaced
+    assert _is_valid_index(json.loads(idx_path.read_text()))

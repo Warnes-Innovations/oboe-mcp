@@ -13,19 +13,22 @@ Uses MCPServer for concise tool registration.
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Annotated, Optional, Sequence
 
 from mcp.server.mcpserver import MCPServer
+from pydantic import Field
 
 from oboe_mcp.migrate import format_result, migrate_project
 from oboe_mcp.locking import (
     DEFAULT_TIMEOUT,
     LockError,
+    _coerce_timeout,
     get_default_policy,
     set_default_policy,
     supports_shared_locks,
@@ -48,6 +51,7 @@ from oboe_mcp.session import (
     mark_skip,
     merge_items,
     oboe_sessions_dir,
+    reindex,
     set_approval,
     session_status,
     trim_sessions,
@@ -57,6 +61,147 @@ from oboe_mcp.session import (
 )
 
 mcp = MCPServer("oboe-mcp", instructions="One-By-One session management tools")
+
+
+# ---------------------------------------------------------------------------
+# Last-resort error boundary
+# ---------------------------------------------------------------------------
+
+def _tool_boundary(fn):
+    """Turn any exception a tool did not handle into a labelled error string.
+
+    Each tool catches what it *expects*; `_TOOL_EXCEPTIONS` covers OSError,
+    ValueError, JSONDecodeError and LockError.  Everything else — KeyError,
+    TypeError, AttributeError — propagated raw to the MCP client, which is
+    what issue #20 looked like from the outside:
+
+        Error executing tool oboe_create: unsupported operand type(s) for +
+
+    A raw interpreter error tells the caller nothing it can act on, and 14 of
+    the 23 tools did not even catch KeyError.  This is a backstop, not a
+    substitute for handling: the message says *internal error* and names the
+    exception type, so a defect that reaches here still reads as a defect
+    rather than as ordinary input rejection.
+    """
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as exc:  # noqa: BLE001 - deliberate outermost catch
+            return (
+                f"ERROR: internal error in {fn.__name__} "
+                f"({type(exc).__name__}): {exc}"
+            )
+    return wrapper
+
+
+def tool():
+    """Register an MCP tool behind :func:`_tool_boundary`."""
+    def decorate(fn):
+        return mcp.tool()(_tool_boundary(fn))
+    return decorate
+
+
+# ---------------------------------------------------------------------------
+# Item input schema
+# ---------------------------------------------------------------------------
+#
+# Every tool that accepts caller-supplied items publishes this schema, so a
+# client can see that the four priority factors are NUMBERS before it sends a
+# sentence.  `dependencies` reads like "what this item depends on", and that
+# misreading is what issue #20 was: a descriptive string reached the
+# priority_score arithmetic and crashed it.
+#
+# The schema is advisory — MCP clients are not obliged to enforce it — so
+# session.validate_score_components() re-checks every value on arrival.
+
+_SCORE_FIELD_DOC = {
+    "urgency": "How time-sensitive this item is. Higher sorts first.",
+    "importance": "How much this item matters. Higher sorts first.",
+    "effort": (
+        "How much work this item is. Higher means MORE work and sorts "
+        "LATER (the score uses 6 - effort)."
+    ),
+    "dependencies": (
+        "How much other work is waiting on this item — dependency "
+        "PRESSURE, as a number. NOT a description of what this item "
+        "depends on. Higher sorts first."
+    ),
+}
+
+_SCORE_DEFAULTS = {
+    "urgency": 3, "importance": 3, "effort": 3, "dependencies": 1,
+}
+
+ITEM_INPUT_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "id": {
+            "type": ["string", "integer"],
+            "description": (
+                "Item identifier. Assigned sequentially from 1 if omitted."
+            ),
+        },
+        "title": {"type": "string", "description": "Short label."},
+        "description": {"type": "string", "description": "Free-text detail."},
+        "category": {"type": "string", "description": "Category label."},
+        "status": {
+            "type": "string",
+            "enum": [
+                "pending", "in_progress", "deferred",
+                "blocked", "completed", "skipped",
+            ],
+            "description": "Lifecycle status. Defaults to 'pending'.",
+        },
+        **{
+            field: {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 5,
+                "default": _SCORE_DEFAULTS[field],
+                "description": (
+                    f"Priority factor, integer 0-5 (default "
+                    f"{_SCORE_DEFAULTS[field]}). {doc}"
+                ),
+            }
+            for field, doc in _SCORE_FIELD_DOC.items()
+        },
+    },
+    "additionalProperties": True,
+}
+
+_ITEMS_DESCRIPTION = (
+    "List of item dicts. All fields are optional. The four priority factors "
+    "-- urgency, importance, effort, dependencies -- are NUMBERS in the range "
+    "0-5, not text; a non-numeric value is rejected naming the item and the "
+    "field. In particular 'dependencies' is a numeric measure of dependency "
+    "pressure, NOT a description of what the item depends on -- put that in "
+    "'description'. priority_score = urgency + importance + (6 - effort) + "
+    "dependencies."
+)
+
+
+def _inject_item_schema(schema: dict) -> None:
+    """Attach ITEM_INPUT_SCHEMA to a ``list[dict]`` parameter's schema.
+
+    Pydantic renders ``Optional[list[dict]]`` as an ``anyOf`` of an array
+    branch and a null branch, so the array branch is what needs the item
+    schema; a required ``list[dict]`` has no ``anyOf`` and is patched directly.
+    """
+    for branch in schema.get("anyOf", []):
+        if branch.get("type") == "array":
+            branch["items"] = ITEM_INPUT_SCHEMA
+    if schema.get("type") == "array":
+        schema["items"] = ITEM_INPUT_SCHEMA
+
+
+_ITEMS_FIELD = Field(
+    description=_ITEMS_DESCRIPTION,
+    json_schema_extra=_inject_item_schema,
+)
+
+ItemList = Annotated[list[dict], _ITEMS_FIELD]
+OptionalItemList = Annotated[Optional[list[dict]], _ITEMS_FIELD]
 
 # LockError is included so a contended session surfaces to the calling agent
 # as a normal tool error it can act on, rather than an unhandled exception.
@@ -131,12 +276,12 @@ def _resolve(session_file: str, base_dir: str | None = None) -> Path:
 # Tool: oboe_create
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool()
 def oboe_create(
     base_dir: str,
     title: str,
     description: str,
-    items: Optional[list[dict]] = None,
+    items: OptionalItemList = None,
     session_file: Optional[str] = None,
 ) -> str:
     """Create a new OBO session file and update index.json atomically.
@@ -145,9 +290,28 @@ def oboe_create(
         base_dir: Project root directory.
         title: Human-readable session title
         description: What this session is reviewing
-        items: List of item dicts. All priority fields are optional.
-               If omitted, the session is created with no items (items can
-               be added later with oboe_merge_items).
+        items: List of item dicts. Every field is optional; if items is
+               omitted entirely the session is created empty (items can be
+               added later with oboe_merge_items).
+
+               The four priority factors are NUMBERS in the range 0-5:
+
+                 urgency      integer 0-5, default 3 — time sensitivity
+                 importance   integer 0-5, default 3 — how much it matters
+                 effort       integer 0-5, default 3 — how much work it is
+                 dependencies integer 0-5, default 1 — how much other work
+                              is waiting on this item (dependency PRESSURE)
+
+               'dependencies' is a numeric score, NOT a description of what
+               the item depends on — that belongs in 'description'. A
+               non-numeric or out-of-range value is rejected with an error
+               naming the item and the field; nothing is written.
+
+               priority_score = urgency + importance + (6 - effort)
+                                + dependencies
+
+               Higher effort therefore lowers the score. Other accepted
+               fields: id, title, description, category, status.
         session_file: Optional explicit filename.
                       If omitted, generated from current timestamp.
     """
@@ -183,10 +347,51 @@ def oboe_create(
 
 
 # ---------------------------------------------------------------------------
+# Tool: oboe_reindex
+# ---------------------------------------------------------------------------
+
+@tool()
+def oboe_reindex(base_dir: str, write: bool = True) -> str:
+    """Rebuild index.json from the session files on disk.
+
+    Every other index repair in oboe is CONDITIONAL — it fires only when the
+    index is missing, corrupt, or structurally invalid.  That leaves one case
+    uncovered: an index that is perfectly VALID but no longer COMPLETE.  Such an
+    index is indistinguishable from a correct one to every other code path, so
+    nothing repairs it and nothing reports it, and oboe_list_sessions will
+    happily return the stale subset.
+
+    Use this when the session list looks wrong, after restoring or reverting
+    index.json, or after moving session files between directories.
+
+    Args:
+        base_dir: Project root directory
+        write: True (default) rebuilds and saves. False computes the diff and
+               reports it WITHOUT writing — a check mode for CI or a
+               pre-commit hook.
+
+    Returns a summary with added/removed/updated filename lists, before/after
+    counts, any unreadable session files, and `changed` (False when the index
+    was already accurate).
+    """
+    try:
+        _validate_base_dir(base_dir)
+    except ValueError as e:
+        return f"ERROR: {e}"
+    sessions_dir = oboe_sessions_dir(base_dir)
+    if not sessions_dir.exists():
+        return json.dumps(
+            {"sessions": [], "message": "No oboe_sessions directory found"}
+        )
+
+    return json.dumps(reindex(sessions_dir, write=write), indent=2)
+
+
+# ---------------------------------------------------------------------------
 # Tool: oboe_list_sessions
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool()
 def oboe_list_sessions(
     base_dir: str,
     status_filter: Optional[str] = None,
@@ -219,7 +424,7 @@ def oboe_list_sessions(
 # Tool: oboe_session_status
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool()
 def oboe_session_status(
     session_file: str,
     base_dir: Optional[str] = None,
@@ -242,7 +447,7 @@ def oboe_session_status(
 # Tool: oboe_get_session
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool()
 def oboe_get_session(
     session_file: str,
     base_dir: Optional[str] = None,
@@ -284,7 +489,7 @@ def oboe_get_session(
 # Tool: oboe_next
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool()
 def oboe_next(
     session_file: str,
     base_dir: Optional[str] = None,
@@ -364,7 +569,7 @@ def oboe_next(
 # Tool: oboe_list_items
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool()
 def oboe_list_items(
     session_file: str,
     base_dir: Optional[str] = None,
@@ -389,7 +594,7 @@ def oboe_list_items(
 # Tool: oboe_get_item
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool()
 def oboe_get_item(
     session_file: str,
     item_id: str,
@@ -416,7 +621,7 @@ def oboe_get_item(
 # Tool: oboe_mark_complete
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool()
 def oboe_mark_complete(
     session_file: str,
     item_id: str,
@@ -459,7 +664,7 @@ def oboe_mark_complete(
 # Tool: oboe_mark_skip
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool()
 def oboe_mark_skip(
     session_file: str,
     item_id: str,
@@ -496,7 +701,7 @@ def oboe_mark_skip(
 # Tool: oboe_mark_deferred
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool()
 def oboe_mark_deferred(
     session_file: str,
     item_id: str,
@@ -533,7 +738,7 @@ def oboe_mark_deferred(
 # Tool: oboe_mark_blocked
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool()
 def oboe_mark_blocked(
     session_file: str,
     item_id: str,
@@ -572,7 +777,7 @@ def oboe_mark_blocked(
 # Tool: oboe_set_approval
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool()
 def oboe_set_approval(
     session_file: str,
     item_id: str,
@@ -624,7 +829,7 @@ def oboe_set_approval(
 # ---------------------------------------------------------------------------
 
 
-@mcp.tool()
+@tool()
 def oboe_mark_in_progress(
     session_file: str,
     item_id: str,
@@ -657,7 +862,7 @@ def oboe_mark_in_progress(
         return f"ERROR: {e}"
 
 
-@mcp.tool()
+@tool()
 def oboe_complete_session(
     session_file: str,
     base_dir: Optional[str] = None,
@@ -690,12 +895,12 @@ def oboe_complete_session(
         return f"ERROR: {e}"
 
 
-@mcp.tool()
+@tool()
 def oboe_create_child_session(
     parent_session_file: str,
     title: str,
     description: str,
-    items: Optional[list[dict]] = None,
+    items: OptionalItemList = None,
     base_dir: Optional[str] = None,
     parent_item_id: Optional[str] = None,
     session_file: Optional[str] = None,
@@ -706,8 +911,11 @@ def oboe_create_child_session(
         parent_session_file: Parent session path or filename
         title: Human-readable child session title
         description: What the child session is reviewing
-        items: Child session items. If omitted, the child session is created
-               with no items (items can be added later with oboe_merge_items).
+        items: Child session items, same shape as oboe_create. If omitted,
+               the child session is created with no items (items can be added
+               later with oboe_merge_items). The four priority factors
+               (urgency, importance, effort, dependencies) are NUMBERS in the
+               range 0-5, not text.
         base_dir: Required if session paths are bare filenames
         parent_item_id: Optional parent item to block while child is active
         session_file: Optional explicit child session filename
@@ -747,7 +955,7 @@ def oboe_create_child_session(
         return f"ERROR: {e}"
 
 
-@mcp.tool()
+@tool()
 def oboe_complete_child_session(
     child_session_file: str,
     base_dir: Optional[str] = None,
@@ -786,17 +994,23 @@ def oboe_complete_child_session(
         return f"ERROR: {e}"
 
 
-@mcp.tool()
+@tool()
 def oboe_merge_items(
     session_file: str,
-    items: list[dict],
+    items: ItemList,
     base_dir: Optional[str] = None,
 ) -> str:
     """Append new items to an existing session.
 
     Args:
         session_file: Absolute path or filename relative to the sessions dir.
-        items: List of item dicts to append to the session
+        items: List of item dicts to append. Same shape as oboe_create: the
+               four priority factors (urgency, importance, effort,
+               dependencies) are NUMBERS in the range 0-5, not text, and
+               'dependencies' measures dependency pressure rather than
+               naming what the item depends on. A bad value rejects the
+               whole batch, naming the item and the field; no items are
+               appended.
         base_dir: Required if session_file is a bare filename
     """
     try:
@@ -818,7 +1032,7 @@ def oboe_merge_items(
         return f"ERROR: {e}"
 
 
-@mcp.tool()
+@tool()
 def oboe_update_field(
     session_file: str,
     item_id: str,
@@ -832,9 +1046,20 @@ def oboe_update_field(
     Args:
         session_file: Absolute path or filename relative to the sessions dir.
         item_id: Item ID to update
-        field: Field name (e.g. 'urgency', 'title', 'description',
-               'status', 'approval_status', 'approval_mode')
-        value: New value. Numeric score fields are cast automatically.
+        field: Field name. Must be one of the documented item fields:
+               title, category, description, status, urgency, importance,
+               effort, dependencies, priority_score, resolution, skip_reason,
+               blocker, blocked_at, approval_status, approval_mode,
+               approved_at, approval_note, child_session_resolution.
+               An unrecognised name is rejected rather than stored.
+               'id' cannot be changed — an id collision would make one of the
+               two items permanently unreachable.
+        value: New value, as a string. The four score components (urgency,
+               importance, effort, dependencies) must parse as a whole number
+               in the range 0-5 — "4" is fine, "high" or "blocks the cutover"
+               is rejected with an error naming the item and the field.
+               'dependencies' is dependency PRESSURE as a number, not a
+               description of what the item depends on.
         base_dir: Required if session_file is a bare filename
     """
     try:
@@ -855,7 +1080,7 @@ def oboe_update_field(
         return f"ERROR: {e}"
 
 
-@mcp.tool()
+@tool()
 def oboe_cancel_session(
     session_file: str,
     base_dir: Optional[str] = None,
@@ -885,7 +1110,7 @@ def oboe_cancel_session(
         return f"ERROR: {e}"
 
 
-@mcp.tool()
+@tool()
 def oboe_trim_sessions(
     base_dir: str,
     before: Optional[str] = None,
@@ -931,7 +1156,7 @@ def oboe_trim_sessions(
 # ---------------------------------------------------------------------------
 # Tool: oboe_set_lock_policy
 # ---------------------------------------------------------------------------
-@mcp.tool()
+@tool()
 def oboe_set_lock_policy(
     blocking: bool = True,
     timeout_seconds: Optional[float] = DEFAULT_TIMEOUT,
@@ -956,10 +1181,15 @@ def oboe_set_lock_policy(
         timeout: float | None
         if timeout_seconds is None:
             timeout = DEFAULT_TIMEOUT
-        elif timeout_seconds <= 0:
-            timeout = None
         else:
-            timeout = float(timeout_seconds)
+            # Check the type before comparing.  Pydantic coerces this argument
+            # for a real MCP client, so a string cannot arrive that way — but
+            # `timeout_seconds <= 0` against one is wrong code regardless of
+            # who can currently reach it, and the next caller (a test, another
+            # module, a future transport) is not bound by today's schema.
+            timeout = _coerce_timeout(timeout_seconds)
+            if timeout is not None and timeout <= 0:
+                timeout = None
 
         applied = set_default_policy(blocking=blocking, timeout=timeout)
         return json.dumps({
@@ -982,7 +1212,7 @@ def oboe_set_lock_policy(
 # ---------------------------------------------------------------------------
 # Tool: oboe_get_lock_policy
 # ---------------------------------------------------------------------------
-@mcp.tool()
+@tool()
 def oboe_get_lock_policy() -> str:
     """Report the lock policy currently in effect for this server process."""
     try:

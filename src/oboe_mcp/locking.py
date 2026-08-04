@@ -59,6 +59,7 @@ import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
+from math import isfinite
 from pathlib import Path
 
 try:  # POSIX
@@ -77,6 +78,7 @@ __all__ = [
     "LockPolicy",
     "LockTimeout",
     "atomic_write_json",
+    "atomic_write_text",
     "get_default_policy",
     "have_real_locking",
     "policy",
@@ -177,13 +179,39 @@ def get_default_policy() -> LockPolicy:
     return override if override is not None else _default_policy
 
 
+def _coerce_timeout(timeout: object) -> float | None:
+    """Validate a caller-supplied lock timeout.
+
+    ``None`` means wait forever.  Anything else must be a real number; a string
+    is rejected rather than compared, because ``timeout <= 0`` against a string
+    raises ``TypeError`` from inside lock acquisition, where it reads as a
+    concurrency failure rather than a bad argument.
+    """
+    if timeout is None:
+        return None
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
+        raise ValueError(
+            "Lock timeout must be a number of seconds or None (got "
+            f"{type(timeout).__name__}: {timeout!r})"
+        )
+    if not isfinite(timeout):
+        raise ValueError(f"Lock timeout must be finite (got {timeout!r})")
+    return float(timeout)
+
+
 def set_default_policy(
     blocking: bool = True,
     timeout: float | None = DEFAULT_TIMEOUT,
 ) -> LockPolicy:
-    """Set the process-wide default lock policy and return it."""
+    """Set the process-wide default lock policy and return it.
+
+    Raises:
+        ValueError: *timeout* is neither None nor a finite number.
+    """
     global _default_policy
-    _default_policy = LockPolicy(blocking=blocking, timeout=timeout)
+    _default_policy = LockPolicy(
+        blocking=bool(blocking), timeout=_coerce_timeout(timeout)
+    )
     return _default_policy
 
 
@@ -219,13 +247,33 @@ def supports_shared_locks() -> bool:
 # Atomic write
 # ---------------------------------------------------------------------------
 
-def atomic_write_json(path: Path, data: object, indent: int = 2) -> None:
-    """Serialize *data* to *path* atomically.
+def _fsync_dir(directory: Path) -> None:
+    """Flush a directory entry so a completed rename survives a power loss.
 
-    The JSON is written to a temporary file in the same directory, flushed and
-    fsynced, then moved into place with :func:`os.replace`.  A concurrent
-    reader sees either the previous file or the new one, never a truncated or
-    partial one.
+    ``os.replace`` makes the swap atomic *with respect to other readers*, which
+    is not the same as durable: on POSIX the new name lives in the directory
+    entry, and that entry is only guaranteed on disk once the directory itself
+    is fsynced.  Without this, a crash can leave the old file — or, on some
+    filesystems, neither — after a write that returned successfully.
+
+    Best effort by design.  Directories cannot be opened for fsync on Windows,
+    and some filesystems reject it; the write itself has already succeeded, so
+    failing here would turn a durability nicety into a lost operation.
+    """
+    with contextlib.suppress(OSError, AttributeError):
+        fd = os.open(directory, getattr(os, "O_DIRECTORY", os.O_RDONLY))
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
+
+def _atomic_write(path: Path, render) -> None:
+    """Write *path* via a same-directory temp file and :func:`os.replace`.
+
+    *render* receives the open text handle.  Shared by the JSON and plain-text
+    writers so both get the same flush/fsync/replace/fsync-dir sequence — a
+    second copy of this dance is a second place for it to be wrong.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -238,15 +286,39 @@ def atomic_write_json(path: Path, data: object, indent: int = 2) -> None:
     tmp_path: str | None = tmp_name
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(data, handle, indent=indent)
+            render(handle)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(tmp_name, path)
         tmp_path = None  # ownership transferred to the destination
+        _fsync_dir(path.parent)
     finally:
         if tmp_path is not None:
             with contextlib.suppress(OSError):
                 os.unlink(tmp_path)
+
+
+def atomic_write_json(path: Path, data: object, indent: int = 2) -> None:
+    """Serialize *data* to *path* atomically and durably.
+
+    The JSON is written to a temporary file in the same directory, flushed and
+    fsynced, moved into place with :func:`os.replace`, and the directory is
+    then fsynced so the rename itself survives a crash.  A concurrent reader
+    sees either the previous file or the new one, never a truncated or
+    partial one.
+    """
+    _atomic_write(path, lambda handle: json.dump(data, handle, indent=indent))
+
+
+def atomic_write_text(path: Path, text: str) -> None:
+    """Write *text* to *path* atomically and durably.
+
+    The same guarantee as :func:`atomic_write_json`, for callers rewriting a
+    file that is not JSON.  ``Path.write_text`` truncates in place: a reader —
+    or a crash — between the truncate and the write sees an empty or partial
+    file, and for a file the tool did not create that is the user's content.
+    """
+    _atomic_write(path, lambda handle: handle.write(text))
 
 
 # ---------------------------------------------------------------------------
