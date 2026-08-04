@@ -87,7 +87,7 @@ Each entry in `items` is a JSON object with these fields.
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `id` | string or integer | yes | Item identifier. If omitted during creation, oboe-mcp assigns a sequential integer starting at 1. |
+| `id` | string or integer | yes | Item identifier, unique within the session. If omitted, oboe-mcp assigns the lowest free integer. Any other type — including `null` — is rejected on input; omit the field to have one assigned. Cannot be changed with `oboe_update_field`. |
 | `status` | string | yes | Lifecycle status: `pending`, `in_progress`, `deferred`, `blocked`, `completed`, or `skipped`. |
 | `title` | string | yes | Short label for the item. Defaults to `Item {id}`. |
 | `category` | string | yes | Category label. Defaults to `General`. |
@@ -106,6 +106,14 @@ Each entry in `items` is a JSON object with these fields.
 | `approved_at` | string or null | yes | ISO 8601 timestamp set when approval is recorded, otherwise `null`. |
 | `approval_note` | string or null | yes | Optional note explaining the approval decision. |
 | `child_session_resolution` | string | conditional | Optional resolution note copied back to the parent item when a child session is completed with a resolution string. |
+
+Item ids must be unique within a session. A duplicate is rejected on input by
+both `oboe_create` and `oboe_merge_items`, because every lookup resolves to the
+first match — a second item sharing an id can never be addressed, completed, or
+skipped, so the session could never reach `completed`.
+
+`oboe_update_field` accepts only the field names in the table above, and not
+`id`. An unrecognised field name is rejected rather than stored.
 
 Normalization defaults:
 

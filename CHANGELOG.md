@@ -18,6 +18,50 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
 
 ### Fixed
 
+- **A non-numeric priority factor crashed the server instead of being
+  rejected** ([#20](https://github.com/Warnes-Innovations/oboe-mcp/issues/20)).
+  `_recalc_priority` added caller-supplied `urgency`/`importance`/`effort`/
+  `dependencies` straight into the `priority_score` arithmetic, so a string
+  `dependencies` surfaced to the MCP client as
+  `unsupported operand type(s) for +: 'int' and 'str'` — naming neither the
+  offending item nor the offending field.
+
+  **Validation at the input boundary.** `validate_score_components()` runs on
+  every caller-supplied item before anything is written, and rejects a bad
+  value with `item 'example': 'dependencies' must be a number 0-5 (got str:
+  '...')`. Applied in `create_session`, `merge_items`, `create_child_session`
+  and `update_field` — i.e. `oboe_create`, `oboe_merge_items`,
+  `oboe_create_child_session` and `oboe_update_field`. Validation happens
+  *before* the transaction opens, so a rejected batch writes nothing and
+  appends nothing. As a second layer, the arithmetic itself now checks each
+  component's type, so no route into it — including an old session file — can
+  produce a bare `TypeError`.
+
+  Booleans, containers, `null`, fractional floats and — at the JSON tools —
+  numeric strings are all rejected rather than coerced. `oboe_update_field`
+  and `oboe-cli update` still accept a numeric string, because their `value`
+  arrives from `argv` or a `str`-typed MCP parameter; a non-numeric one is
+  now rejected by name instead of by `invalid literal for int()`.
+
+  The 0-5 range is enforced on **input only**. Nothing ever bounded these
+  values on disk, so applying the range to the load path would make a
+  previously readable session file unloadable.
+
+- **`oboe_create` accepted duplicate item ids; `oboe_merge_items` rejected
+  them.** A second item sharing an id is unreachable — every lookup resolves
+  to the first — so it could never be completed or skipped and the session
+  could never finish. Worse, `oboe_next(mark_in_progress=True)` returned the
+  shadowed item and then marked the *other* one in progress. Both paths now
+  share `_stage_items`, which validates ids, rejects duplicates, and assigns
+  auto-ids only after every explicit id in the batch is known — so `[{},
+  {"id": 1}]` no longer produces two items numbered 1. An id must be a string
+  or an integer; `null` is rejected with a message saying to omit the field.
+
+- **`oboe_update_field` could rewrite `id` into a collision, and accepted any
+  field name at all.** Setting `id` is now refused outright, and the field
+  name is checked against the documented item schema instead of being written
+  through.
+
 - **`oboe-cli next --mark-in-progress` crashed on a session with no actionable
   items.** `_cmd_next` dereferenced `item["id"]` before `_print_next`'s
   `item is None` branch could report "No actionable items", so `get_next()`

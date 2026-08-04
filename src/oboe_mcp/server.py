@@ -59,6 +59,7 @@ from oboe_mcp.session import (
 
 mcp = MCPServer("oboe-mcp", instructions="One-By-One session management tools")
 
+
 # LockError is included so a contended session surfaces to the calling agent
 # as a normal tool error it can act on, rather than an unhandled exception.
 _TOOL_EXCEPTIONS = (OSError, ValueError, json.JSONDecodeError, LockError)
@@ -874,9 +875,20 @@ def oboe_update_field(
     Args:
         session_file: Absolute path or filename relative to the sessions dir.
         item_id: Item ID to update
-        field: Field name (e.g. 'urgency', 'title', 'description',
-               'status', 'approval_status', 'approval_mode')
-        value: New value. Numeric score fields are cast automatically.
+        field: Field name. Must be one of the documented item fields:
+               title, category, description, status, urgency, importance,
+               effort, dependencies, priority_score, resolution, skip_reason,
+               blocker, blocked_at, approval_status, approval_mode,
+               approved_at, approval_note, child_session_resolution.
+               An unrecognised name is rejected rather than stored.
+               'id' cannot be changed — an id collision would make one of the
+               two items permanently unreachable.
+        value: New value, as a string. The four score components (urgency,
+               importance, effort, dependencies) must parse as a whole number
+               in the range 0-5 — "4" is fine, "high" or "blocks the cutover"
+               is rejected with an error naming the item and the field.
+               'dependencies' is dependency PRESSURE as a number, not a
+               description of what the item depends on.
         base_dir: Required if session_file is a bare filename
     """
     try:

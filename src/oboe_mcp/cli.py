@@ -677,7 +677,10 @@ def _cmd_create(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
             title=args.title,
             description=args.description,
         )
-    except FileExistsError as exc:
+    except (FileExistsError, ValueError, KeyError) as exc:
+        # ValueError covers item validation (score components, status); its
+        # siblings _cmd_merge and _cmd_create_child already caught it, and
+        # main() does not, so it escaped from here as a bare traceback.
         print(f"❌ {exc}", file=sys.stderr)
         return 1
     print(f"✓ Session created: {sf.name}")
