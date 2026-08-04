@@ -44,7 +44,9 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import shutil
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -120,6 +122,52 @@ def _candidate_files(root: Path) -> list[Path]:
 
     # Stable, de-duplicated order so output is reproducible.
     return sorted(set(found))
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Replace *path*'s contents via a temp file and ``os.replace``.
+
+    ``Path.write_text`` truncates in place, so a crash — or a reader — between
+    the truncate and the write sees an empty or partial file.  These are the
+    user's own instruction files, which this module did not create and cannot
+    reconstruct, and a migration is precisely when someone is already repairing
+    something.  The directory is fsynced afterwards so the rename is durable
+    and not merely atomic.
+
+    Duplicated from ``locking.atomic_write_text`` rather than imported, and
+    that is deliberate: this module is documented to run on the stock macOS
+    ``python3`` (3.9), while ``locking`` evaluates ``float | None`` annotations
+    at runtime and therefore needs 3.10+.  Importing it would break the repair
+    tool on exactly the interpreter it was written to survive.
+    """
+    directory = path.parent
+    fd, tmp_name = tempfile.mkstemp(
+        dir=str(directory), prefix="." + path.name + ".", suffix=".tmp"
+    )
+    tmp_path: "str | None" = tmp_name
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        shutil.copymode(str(path), tmp_name)
+        os.replace(tmp_name, str(path))
+        tmp_path = None  # ownership transferred to the destination
+        try:  # best effort: not supported on Windows or every filesystem
+            flags = getattr(os, "O_DIRECTORY", os.O_RDONLY)
+            dir_fd = os.open(str(directory), flags)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+        except OSError:
+            pass
+    finally:
+        if tmp_path is not None:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
 
 def _migrate_sessions_dir(root: Path, result: MigrationResult) -> None:
@@ -219,7 +267,7 @@ def migrate_project(
             continue
 
         if not dry_run:
-            path.write_text(updated, encoding="utf-8")
+            _atomic_write_text(path, updated)
         result.changed.append(rel)
 
     return result

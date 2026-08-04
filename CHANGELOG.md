@@ -144,6 +144,35 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
   not a substitute for handling: the wording keeps a defect legible as a
   defect rather than disguising it as input rejection.
 
+- **An atomic write was not a durable one.** `atomic_write_json` fsynced the
+  temp file and then `os.replace`d it into position, which makes the swap
+  atomic *for a concurrent reader* but not durable: on POSIX the new name
+  lives in the directory entry, and that entry only reaches disk when the
+  directory itself is fsynced. A crash could leave the old file after a write
+  that had returned successfully. The directory is now fsynced too, best
+  effort — Windows cannot open a directory for fsync, and the write has
+  already succeeded, so failing there would turn a durability nicety into a
+  lost operation.
+
+- **`migrate` truncated the user's own instruction files in place.**
+  `Path.write_text` truncates before writing, so a crash — or a reader —
+  between the two saw an empty or partial file. These are files the tool did
+  not create and cannot reconstruct, and a migration is exactly when someone
+  is already repairing something. It now writes via a temp file and
+  `os.replace`, preserving the destination's mode. The routine is duplicated
+  rather than imported from `locking`, deliberately: `migrate` is documented
+  to run on the stock macOS `python3` (3.9), and `locking` evaluates
+  `float | None` annotations at runtime and so needs 3.10+.
+
+- **A lock timeout was compared before it was type-checked.**
+  `oboe_set_lock_policy` evaluated `timeout_seconds <= 0`, which raises
+  `TypeError` against a string — surfacing from inside lock acquisition, where
+  it reads as a concurrency failure rather than a bad argument. No shipping
+  caller could reach it (pydantic coerces the MCP parameter, and `oboe-cli`
+  parses `--lock-timeout` itself), but reachability is a fact about today's
+  callers, not about whether the code is right. `locking._coerce_timeout` now
+  validates at the library boundary and the tool checks before comparing.
+
 - **A session holding both string and integer item ids crashed `oboe_next`
   and `oboe_list_items`.** `id` is documented as "string or integer" and both
   `oboe_create` and `oboe_merge_items` accept whatever the caller supplies, so

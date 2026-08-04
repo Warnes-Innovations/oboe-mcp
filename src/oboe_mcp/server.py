@@ -28,6 +28,7 @@ from oboe_mcp.migrate import format_result, migrate_project
 from oboe_mcp.locking import (
     DEFAULT_TIMEOUT,
     LockError,
+    _coerce_timeout,
     get_default_policy,
     set_default_policy,
     supports_shared_locks,
@@ -1180,10 +1181,15 @@ def oboe_set_lock_policy(
         timeout: float | None
         if timeout_seconds is None:
             timeout = DEFAULT_TIMEOUT
-        elif timeout_seconds <= 0:
-            timeout = None
         else:
-            timeout = float(timeout_seconds)
+            # Check the type before comparing.  Pydantic coerces this argument
+            # for a real MCP client, so a string cannot arrive that way — but
+            # `timeout_seconds <= 0` against one is wrong code regardless of
+            # who can currently reach it, and the next caller (a test, another
+            # module, a future transport) is not bound by today's schema.
+            timeout = _coerce_timeout(timeout_seconds)
+            if timeout is not None and timeout <= 0:
+                timeout = None
 
         applied = set_default_policy(blocking=blocking, timeout=timeout)
         return json.dumps({
