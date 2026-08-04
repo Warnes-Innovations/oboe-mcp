@@ -190,7 +190,12 @@ def _print_session_status(stats: dict) -> None:
     categories = stats.get("categories", {})
     if categories:
         print("\nBy Category:")
-        for cat, counts in sorted(categories.items()):
+        # Sort on str(), not the raw key.  `category` is free-form caller
+        # input and is never type-checked, so one session can hold both 5 and
+        # "General" — and ordering those directly raises TypeError, taking
+        # down a read-only status display.  Same class as _id_sort_key.
+        by_name = sorted(categories.items(), key=lambda kv: str(kv[0]))
+        for cat, counts in by_name:
             cat_total = counts.get("total", 0)
             cat_done  = counts.get("completed", 0)
             cat_pct   = (100 * cat_done // cat_total) if cat_total else 0
@@ -677,7 +682,10 @@ def _cmd_create(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
             title=args.title,
             description=args.description,
         )
-    except FileExistsError as exc:
+    except (FileExistsError, ValueError, KeyError) as exc:
+        # ValueError covers item validation (score components, status); its
+        # siblings _cmd_merge and _cmd_create_child already caught it, and
+        # main() does not, so it escaped from here as a bare traceback.
         print(f"❌ {exc}", file=sys.stderr)
         return 1
     print(f"✓ Session created: {sf.name}")
@@ -762,6 +770,22 @@ def _cmd_trim_sessions(args: argparse.Namespace, parser: argparse.ArgumentParser
         print(f"  - {name}")
     if result["total_retained"]:
         print(f"Retained: {result['total_retained']} session(s)")
+    # A refused row must be reported, never dropped: it means index.json names
+    # something this command declined to delete, and silence would read as
+    # "nothing to see" on a destructive operation.
+    if result.get("total_rejected"):
+        print(
+            f"\n⚠️  Refused {result['total_rejected']} index row(s) — "
+            "not deleted:",
+            file=sys.stderr,
+        )
+        for note in result["rejected"]:
+            print(f"  - {note}", file=sys.stderr)
+        print(
+            "Run 'oboe-cli reindex' to rebuild index.json from the session "
+            "files on disk.",
+            file=sys.stderr,
+        )
     return 0
 
 
@@ -1058,6 +1082,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"❌ Session file not found: {fname}", file=sys.stderr)
         return 1
     except LockError as exc:
+        print(f"❌ {exc}", file=sys.stderr)
+        return 1
+    except (ValueError, KeyError) as exc:
+        # The domain errors: a rejected value, a malformed session file, a
+        # missing item.  Handlers that want a more specific message still
+        # catch these themselves; this is the backstop for the ones that do
+        # not, of which there were eight — `status`, `list` and `show` all
+        # printed a traceback for a session file that was merely malformed.
+        #
+        # Deliberately NOT a blanket `except Exception`.  Unlike the MCP
+        # server, whose client cannot act on a traceback, a CLI traceback is
+        # the conventional and useful signal that something is a defect rather
+        # than bad input — so an unexpected type should still surface as one.
         print(f"❌ {exc}", file=sys.stderr)
         return 1
 

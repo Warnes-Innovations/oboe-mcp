@@ -16,6 +16,7 @@ import json
 import re
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from math import isfinite
 from pathlib import Path
 
 from .locking import atomic_write_json, sessions_lock
@@ -34,7 +35,32 @@ _OPEN_ITEM_STATUSES = (
 _VALID_ITEM_STATUSES = _OPEN_ITEM_STATUSES | _TERMINAL_STATUSES
 _VALID_APPROVAL_STATUSES = {"unreviewed", "approved", "denied"}
 _VALID_APPROVAL_MODES = {"immediate", "delayed"}
-_SCORE_COMPONENTS = {"urgency", "importance", "effort", "dependencies"}
+# Ordered for deterministic error reporting; _SCORE_COMPONENTS stays a set
+# because the rest of the module uses it for membership tests only.
+_SCORE_COMPONENT_ORDER = ("urgency", "importance", "effort", "dependencies")
+_SCORE_COMPONENTS = set(_SCORE_COMPONENT_ORDER)
+_SCORE_MIN = 0
+_SCORE_MAX = 5
+# Fields `update_field` may set.  Deliberately an allow-list, not a denylist:
+# a session file is a documented schema, and an unrecognised field name is far
+# more likely a typo or a hallucinated field than a deliberate extension.
+# `id` is absent on purpose — see update_field.
+_UPDATABLE_FIELDS = {
+    "title",
+    "category",
+    "description",
+    "status",
+    "resolution",
+    "skip_reason",
+    "blocker",
+    "blocked_at",
+    "approval_status",
+    "approval_mode",
+    "approved_at",
+    "approval_note",
+    "child_session_resolution",
+    "priority_score",
+} | _SCORE_COMPONENTS
 _SESSION_RE = re.compile(r"^session_\d{8}_\d{6}\.json$")
 _VALID_SESSION_STATUSES = {"active", "paused", "completed", "cancelled"}
 
@@ -119,9 +145,65 @@ def load_session(session_file: Path) -> dict:
 
 
 def _load_session_unlocked(session_file: Path) -> dict:
-    """Read a session file assuming the caller already holds the lock."""
+    """Read a session file assuming the caller already holds the lock.
+
+    Raises:
+        ValueError: the file parses as JSON but is not a session document.
+    """
     with open(session_file, "r", encoding="utf-8") as f:
-        return json.load(f)
+        return _require_session_document(json.load(f), session_file)
+
+
+def _require_session_document(document: object, session_file: Path) -> dict:
+    """Check that *document* has the container shape the rest of this module
+    assumes, and say which file is wrong when it does not.
+
+    ``json.load`` only guarantees *valid JSON*, not a valid session.  Session
+    files are hand-editable, are synced between machines, and can be written by
+    other tooling, so a structurally wrong one is an ordinary occurrence rather
+    than an internal error.  Without this the shape was discovered by whatever
+    touched it first, in the vocabulary of the interpreter rather than of the
+    session store:
+
+    ======================  =======================================
+    file contains           error the caller used to see
+    ======================  =======================================
+    ``"items": "oops"``     dictionary update sequence element #0…
+    ``"items": [null]``     'NoneType' object is not iterable
+    a top-level list        'list' object has no attribute 'get'
+    ======================  =======================================
+
+    Only the containers are checked here.  Field-level rules stay in
+    :func:`_normalize_item`, which has to keep loading older files whose values
+    predate a constraint — see :func:`_score_value`.
+    """
+    where = f"Malformed session file {session_file.name}"
+    if not isinstance(document, dict):
+        raise ValueError(
+            f"{where}: expected a JSON object, got "
+            f"{type(document).__name__}"
+        )
+
+    items = document.get("items", [])
+    if not isinstance(items, list):
+        raise ValueError(
+            f"{where}: 'items' must be a list, got {type(items).__name__}"
+        )
+    for position, item in enumerate(items, start=1):
+        if not isinstance(item, dict):
+            raise ValueError(
+                f"{where}: item #{position} must be an object, got "
+                f"{type(item).__name__}"
+            )
+
+    children = document.get("child_session_files", [])
+    if not isinstance(children, list):
+        raise ValueError(
+            f"{where}: 'child_session_files' must be a list, got "
+            f"{type(children).__name__}"
+        )
+
+    return document
 
 
 def save_session(session_file: Path, session: dict) -> None:
@@ -172,13 +254,245 @@ def _write_session_and_index(session_file: Path, session: dict) -> None:
 # Priority score
 # ---------------------------------------------------------------------------
 
+def _score_error(
+    item_id: object,
+    field: str,
+    value: object,
+    detail: str = "",
+) -> ValueError:
+    """Build the rejection message for a bad score component.
+
+    The message names the item *and* the field, because the caller supplies a
+    whole batch of items and the bare arithmetic error named neither.
+    """
+    suffix = detail or f"got {type(value).__name__}: {value!r}"
+    return ValueError(
+        f"item {item_id!r}: {field!r} must be a number "
+        f"{_SCORE_MIN}-{_SCORE_MAX} ({suffix})"
+    )
+
+
+def _as_score_int(value: object) -> int | None:
+    """Return *value* as an int if it is an integral real number, else None.
+
+    ``bool`` is rejected despite being an ``int`` subclass: ``True`` as an
+    urgency is a type error the caller wants to hear about, not a 1.  A float
+    is accepted only when integral, since JSON has no int/float distinction and
+    ``3.0`` is a legitimate way to write 3 — but ``2.5`` is not a score.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return int(value)
+    if isinstance(value, float):
+        if not isfinite(value) or not value.is_integer():
+            return None
+        return int(value)
+    return None
+
+
+def _score_value(item: dict, field: str, default: int) -> int:
+    """Read one score component for the arithmetic, or raise a clear error.
+
+    This is the *inner* of the two validation layers.  Boundary callers have
+    already validated their input via :func:`validate_score_components`; this
+    guard exists so that no route into the arithmetic — including loading a
+    session file written by an older version, or by hand — can produce a bare
+    ``TypeError`` naming neither item nor field.
+
+    It deliberately checks type only, not range: nothing has ever bounded these
+    values on disk, so enforcing the range here would make a previously
+    readable session file unloadable.
+    """
+    value = item.get(field, default)
+    number = _as_score_int(value)
+    if number is None:
+        raise _score_error(item.get("id"), field, value)
+    return number
+
+
+def validate_score_components(item: dict, item_id: object = None) -> dict:
+    """Validate and normalize caller-supplied score components, in place.
+
+    This is the *outer* layer, applied at the input boundary to items that
+    arrived from an MCP client, the CLI, or another caller — where the values
+    are LLM-generated JSON and cannot be assumed well-formed.  Unlike
+    :func:`_score_value` it also enforces the documented 0-5 range, and it
+    rejects a component that is present but ``None``.
+
+    Absent components are left absent; :func:`_normalize_item` supplies the
+    defaults.
+
+    Args:
+        item: Raw item dict; validated components are replaced with ints.
+        item_id: Identifier to name in errors. Defaults to ``item["id"]``.
+
+    Returns:
+        The same dict, for convenient chaining.
+
+    Raises:
+        ValueError: naming the item and the field, for any bad component.
+    """
+    if item_id is None:
+        item_id = item.get("id")
+    for field in _SCORE_COMPONENT_ORDER:
+        if field not in item:
+            continue
+        value = item[field]
+        number = _as_score_int(value)
+        if number is None:
+            raise _score_error(item_id, field, value)
+        if not _SCORE_MIN <= number <= _SCORE_MAX:
+            raise _score_error(item_id, field, value, detail=f"got {number}")
+        item[field] = number
+    return item
+
+
+def validate_item_id(item_id: object) -> str | int:
+    """Validate a caller-supplied item id.
+
+    ``id`` is documented as "string or integer".  Anything else reaches
+    :func:`_id_sort_key`, ``str()``-based lookup and the duplicate check as an
+    unconstrained value, so it is rejected at the boundary rather than stored.
+
+    ``None`` is rejected rather than silently read as "assign one for me":
+    ``setdefault`` does not replace an explicit ``None``, so it would have
+    become a real item id of ``None``, matched by the string ``"None"``.
+    """
+    if isinstance(item_id, bool) or item_id is None:
+        raise ValueError(
+            "Item 'id' must be a string or an integer "
+            f"(got {type(item_id).__name__}: {item_id!r}). "
+            "Omit the field entirely to have one assigned."
+        )
+    if isinstance(item_id, int):
+        return item_id
+    if isinstance(item_id, str):
+        if not item_id.strip():
+            raise ValueError("Item 'id' must not be blank")
+        return item_id
+    raise ValueError(
+        "Item 'id' must be a string or an integer "
+        f"(got {type(item_id).__name__}: {item_id!r})"
+    )
+
+
+def _stage_items(
+    items: list[dict],
+    taken: set[str] | None = None,
+    start: int = 1,
+) -> list[dict]:
+    """Validate a batch of caller-supplied items and settle their ids.
+
+    Runs before any lock is taken and before anything is written, so a batch
+    that fails validation leaves no session file, no directory and no
+    partially-appended items.
+
+    Explicit ids are validated and checked for duplicates — against each other
+    *and* against *taken*, the ids already in the session.  Items with no id
+    are assigned the lowest free integer, skipping ids the batch has claimed.
+
+    Both :func:`create_session` and :func:`merge_items` use this.  They used to
+    differ: ``merge_items`` rejected duplicates while ``create_session``
+    accepted them, and a duplicate id makes the second item permanently
+    unreachable — every lookup resolves to the first — so ``oboe_next`` could
+    hand back an item and then mark a *different* one in progress.
+
+    Args:
+        items: Raw item dicts from the caller.
+        taken: String forms of ids already present in the session.
+        start: Lowest integer to consider when auto-assigning. ``merge_items``
+            passes one past the highest existing id so an appended item never
+            reuses a number that already appeared in this session's history.
+
+    Returns:
+        Fresh copies, with score components normalized and ``id`` set.
+
+    Raises:
+        ValueError: for a bad score component, a bad id, or a duplicate id.
+    """
+    if not isinstance(items, list):
+        raise ValueError(
+            f"'items' must be a list of objects, got {type(items).__name__}"
+        )
+
+    claimed = set(taken or ())
+    staged: list[dict] = []
+
+    # First pass: validate everything the caller stated explicitly, so a
+    # duplicate is reported against the id the caller actually wrote.
+    for position, raw_item in enumerate(items, start=1):
+        # Check the container before copying it.  `dict(raw_item)` on a string
+        # or None reports in the interpreter's vocabulary ("dictionary update
+        # sequence element #0 has length 1") rather than saying which item of
+        # the batch is the wrong shape.
+        if not isinstance(raw_item, dict):
+            raise ValueError(
+                f"item #{position} must be an object, got "
+                f"{type(raw_item).__name__}: {raw_item!r}"
+            )
+        item = dict(raw_item)
+        if "id" in item:
+            item["id"] = validate_item_id(item["id"])
+            key = str(item["id"])
+            if key in claimed:
+                raise ValueError(f"Duplicate item id: {item['id']}")
+            claimed.add(key)
+        validate_score_components(item, item.get("id", f"#{position}"))
+        staged.append(item)
+
+    # Second pass: fill in the gaps.  Deferring this until every explicit id is
+    # known is what stops an auto-assigned id from colliding with one stated
+    # later in the same batch.
+    next_idx = start
+    for item in staged:
+        if "id" in item:
+            continue
+        while str(next_idx) in claimed:
+            next_idx += 1
+        item["id"] = next_idx
+        claimed.add(str(next_idx))
+        next_idx += 1
+
+    return staged
+
+
+def _validate_score_string(item_id: object, field: str, value: object) -> int:
+    """Validate a score component that arrived over a stringly-typed channel.
+
+    ``oboe_update_field`` declares ``value: str`` and the CLI reads it from
+    ``argv``, so a numeric string is the *normal* input there and is parsed
+    rather than rejected — unlike :func:`validate_score_components`, whose
+    callers receive JSON and can declare these fields as numbers.
+    """
+    candidate: object = value
+    if isinstance(value, str):
+        try:
+            candidate = int(value.strip())
+        except ValueError:
+            try:
+                candidate = float(value.strip())
+            except ValueError:
+                raise _score_error(item_id, field, value) from None
+    number = _as_score_int(candidate)
+    if number is None:
+        raise _score_error(item_id, field, value)
+    if not _SCORE_MIN <= number <= _SCORE_MAX:
+        raise _score_error(item_id, field, value, detail=f"got {number}")
+    return number
+
+
 def _recalc_priority(item: dict) -> int:
-    """Recalculate priority_score from component fields in place."""
+    """Recalculate priority_score from component fields in place.
+
+    Raises:
+        ValueError: if any component is non-numeric, naming item and field.
+    """
     item["priority_score"] = (
-        item.get("urgency", 3)
-        + item.get("importance", 3)
-        + (6 - item.get("effort", 3))
-        + item.get("dependencies", 1)
+        _score_value(item, "urgency", 3)
+        + _score_value(item, "importance", 3)
+        + (6 - _score_value(item, "effort", 3))
+        + _score_value(item, "dependencies", 1)
     )
     return item["priority_score"]
 
@@ -273,12 +587,32 @@ def _index_path(sessions_dir: Path) -> Path:
     return sessions_dir / "index.json"
 
 
+def _is_valid_row(row: object) -> bool:
+    """Return True if *row* is usable as an index entry.
+
+    A row is only ever consumed by ``file``, so that is what has to be there
+    and has to be a string.
+    """
+    return isinstance(row, dict) and isinstance(row.get("file"), str)
+
+
 def _is_valid_index(index: object) -> bool:
-    """Return True if *index* has the expected top-level structure."""
+    """Return True if *index* has the expected structure, rows included.
+
+    The row check is not incidental.  Validating only the top level let a
+    structurally-valid index carry unusable rows straight into code that
+    assumes the shape: ``_upsert_index`` raised ``TypeError: string indices
+    must be integers`` — *after* the session file had already been written, so
+    every write path left the session and its index out of step — and
+    ``list_sessions`` handed the malformed rows back to its caller, which then
+    failed on ``.get``.  Rejecting them here routes both through the rebuild
+    path instead, which is the repair this index already has.
+    """
     return (
         isinstance(index, dict)
         and index.get("format_version") == 1
         and isinstance(index.get("sessions"), list)
+        and all(_is_valid_row(row) for row in index["sessions"])
     )
 
 
@@ -602,6 +936,10 @@ def create_session(
     """
     validate_session_filename(session_file.name)
 
+    # Validate before taking the lock or creating anything: a bad batch must
+    # not leave a directory or a half-written session behind.
+    staged = _stage_items(items)
+
     session_file.parent.mkdir(parents=True, exist_ok=True)
 
     with sessions_lock(session_file.parent, exclusive=True):
@@ -611,8 +949,7 @@ def create_session(
             )
 
         normalized = [
-            _normalize_item(dict(item), idx)
-            for idx, item in enumerate(items, start=1)
+            _normalize_item(item, item["id"]) for item in staged
         ]
 
         session = {
@@ -736,6 +1073,38 @@ def session_status(session_file: Path) -> dict:
     }
 
 
+def _id_sort_key(item: dict) -> tuple[int, int, str]:
+    """Total order for item ids, which may be integers *or* strings.
+
+    ``id`` is documented as "string or integer", so one session can hold both
+    — and both `oboe_create` and `oboe_merge_items` accept whatever the caller
+    supplies.  Ordering on the raw value therefore raises
+    ``TypeError: '<' not supported between instances of 'int' and 'str'``.
+
+    The id is only ever a *tie-break* on ``priority_score``, which is what hid
+    this: a mixed-id session sorts fine until two of its items happen to score
+    the same, and then `oboe_next` and `oboe_list_items` both fail.
+
+    Numeric ids sort first, in numeric order; the rest follow as text.  A
+    string that spells a number is treated as that number, matching how
+    :func:`merge_items` already reads ``existing_ids`` when picking the next
+    integer id.
+    """
+    item_id = item.get("id", 0)
+    if isinstance(item_id, int) and not isinstance(item_id, bool):
+        return (0, item_id, "")
+    text = str(item_id)
+    try:
+        return (0, int(text), "")
+    except ValueError:
+        return (1, 0, text)
+
+
+def _priority_sort_key(item: dict) -> tuple[int, tuple[int, int, str]]:
+    """Highest priority_score first, lowest id as the tie-break."""
+    return (-item.get("priority_score", 0), _id_sort_key(item))
+
+
 def get_next(session_file: Path) -> dict | None:
     """Return the next item to work on.
 
@@ -759,21 +1128,9 @@ def get_next(session_file: Path) -> dict | None:
     pending = [i for i in items if i.get("status") == "pending"]
     deferred = [i for i in items if i.get("status") == "deferred"]
 
-    if in_progress:
-        return sorted(
-            in_progress,
-            key=lambda x: (-x.get("priority_score", 0), x["id"]),
-        )[0]
-    if pending:
-        return sorted(
-            pending,
-            key=lambda x: (-x.get("priority_score", 0), x["id"]),
-        )[0]
-    if deferred:
-        return sorted(
-            deferred,
-            key=lambda x: (-x.get("priority_score", 0), x["id"]),
-        )[0]
+    for bucket in (in_progress, pending, deferred):
+        if bucket:
+            return sorted(bucket, key=_priority_sort_key)[0]
     return None
 
 
@@ -787,10 +1144,7 @@ def list_items(
     items = session.get("items", [])
     if status_filter:
         items = [i for i in items if i.get("status") == status_filter]
-    return sorted(
-        items,
-        key=lambda x: (-x.get("priority_score", 0), x.get("id", 0)),
-    )
+    return sorted(items, key=_priority_sort_key)
 
 
 def get_item(session_file: Path, item_id: str | int) -> dict | None:
@@ -924,6 +1278,48 @@ def cancel_session(session_file: Path, reason: str = "") -> dict:
     return session
 
 
+def _deletable_session(sessions_dir: Path, filename: str) -> Path:
+    """Resolve *filename* to a session file that is safe to delete.
+
+    ``trim_sessions`` decides what to remove from ``index.json``, and an index
+    row's ``file`` is not something this code wrote — it is whatever is on
+    disk, in a file that is routinely committed and synced between machines.
+    Joining it onto the sessions directory unchecked deleted a file *outside*
+    that directory: a planted row of ``../../IMPORTANT.txt`` was unlinked and
+    still reported as a deleted session.
+
+    Three independent checks, and a failure of any one is a refusal:
+
+    1. the name matches the documented ``session_YYYYMMDD_HHMMSS.json`` form,
+       which admits no separator and no ``..``;
+    2. it is a bare filename, with no directory part of its own;
+    3. the resolved path's parent is the resolved sessions directory — which
+       is what catches a symlink pointing out of the tree, something neither
+       name check can see.
+
+    Raises:
+        ValueError: naming the reason, if any check fails.
+    """
+    if not isinstance(filename, str) or not filename:
+        raise ValueError("index row has no usable 'file' name")
+
+    validate_session_filename(filename)   # (1)
+
+    candidate = Path(filename)
+    if candidate.name != filename or candidate.is_absolute():   # (2)
+        raise ValueError("must be a bare filename, not a path")
+
+    target = sessions_dir / filename
+    resolved_dir = sessions_dir.resolve()
+    # resolve() on the file itself follows a symlink to its destination, which
+    # is exactly the case check (3) exists to catch.
+    if target.resolve().parent != resolved_dir:   # (3)
+        raise ValueError(
+            f"resolves outside the sessions directory ({resolved_dir})"
+        )
+    return target
+
+
 def trim_sessions(
     sessions_dir: Path,
     before: datetime | str | None = None,
@@ -943,8 +1339,10 @@ def trim_sessions(
             files.
 
     Returns:
-        A dict with keys ``deleted`` (list of filenames removed) and
-        ``retained`` (list of filenames kept), plus ``dry_run`` bool.
+        A dict with keys ``deleted`` (files actually removed — on a dry run,
+        those that would be), ``retained`` (files kept), and ``rejected``
+        (index rows naming something this function refuses to touch), plus
+        ``dry_run`` bool.
 
     Raises:
         ValueError: if *before* is not parseable as a datetime.
@@ -969,6 +1367,13 @@ def trim_sessions(
         else:
             cutoff = before
 
+    # `created` is parsed from a bare YYYY-MM-DD and is therefore naive.  An
+    # ISO-8601 string carrying an offset — the most likely form for a machine
+    # to emit — produced an aware cutoff, and comparing the two raised
+    # TypeError from inside a delete operation.
+    if cutoff is not None and cutoff.tzinfo is not None:
+        cutoff = cutoff.astimezone().replace(tzinfo=None)
+
     # Deciding what to delete and deleting it must be one atomic step: the
     # decision is made from the index, and a concurrent mutation between the
     # two would shift the ground under it.
@@ -976,6 +1381,8 @@ def trim_sessions(
         rows = list_sessions(sessions_dir)
         deleted: list[str] = []
         retained: list[str] = []
+        rejected: list[str] = []
+        targets: list[tuple[str, Path]] = []
 
         for row in rows:
             filename = row.get("file", "")
@@ -998,15 +1405,26 @@ def trim_sessions(
                     retained.append(filename)
                     continue
 
-            deleted.append(filename)
+            try:
+                targets.append((filename, _deletable_session(
+                    sessions_dir, filename
+                )))
+            except ValueError as exc:
+                rejected.append(f"{filename!r}: {exc}")
 
-        if not dry_run:
-            for filename in deleted:
-                sf = sessions_dir / filename
+        if dry_run:
+            deleted = [name for name, _ in targets]
+        else:
+            for filename, path in targets:
                 try:
-                    sf.unlink(missing_ok=True)
-                except OSError:
-                    pass
+                    path.unlink()
+                except FileNotFoundError:
+                    # Already gone: the row was stale, not a deletion we did.
+                    continue
+                except OSError as exc:
+                    rejected.append(f"{filename!r}: {exc}")
+                    continue
+                deleted.append(filename)
             # Rebuild index from surviving files
             rebuilt = _rebuild_index_from_files(sessions_dir)
             _save_index(sessions_dir, rebuilt)
@@ -1014,9 +1432,11 @@ def trim_sessions(
     return {
         "deleted":  deleted,
         "retained": retained,
+        "rejected": rejected,
         "dry_run":  dry_run,
         "total_deleted":  len(deleted),
         "total_retained": len(retained),
+        "total_rejected": len(rejected),
     }
 
 
@@ -1141,7 +1561,14 @@ def complete_child_session(
         parent_item_id = child_session.get("parent_item_id")
         if parent_item_id is not None:
             parent_item = _require_item(parent_session, parent_item_id)
-            blocker = parent_item.get("blocker") or {}
+            # `blocker` is stored as a dict but nothing guarantees it stayed
+            # one — oboe_update_field sets any field to any value.  A bare
+            # `.get` on a string raised AttributeError *after* the child had
+            # already been written completed, leaving the parent paused with a
+            # dangling active_child_session and no tool able to clear it.
+            blocker = parent_item.get("blocker")
+            if not isinstance(blocker, dict):
+                blocker = {}
             if blocker.get("session_file") == child_session_file.name:
                 parent_item["status"] = "pending"
                 _clear_blocker_fields(parent_item)
@@ -1170,22 +1597,19 @@ def merge_items(session_file: Path, items: list[dict]) -> dict:
         numeric_ids = [
             int(item_id) for item_id in existing_ids if item_id.isdigit()
         ]
-        next_idx = max(numeric_ids, default=0) + 1
-        merged_items = []
 
-        for raw_item in items:
-            item = dict(raw_item)
-            if "id" not in item:
-                while str(next_idx) in existing_ids:
-                    next_idx += 1
-                item["id"] = next_idx
-                next_idx += 1
-            if str(item["id"]) in existing_ids:
-                raise ValueError(f"Duplicate item id: {item['id']}")
+        # Validate and settle the whole batch first.  Raising here propagates
+        # out of session_transaction before its write, so a rejected merge
+        # appends nothing.
+        staged = _stage_items(
+            items, taken=existing_ids, start=max(numeric_ids, default=0) + 1
+        )
+
+        merged_items = []
+        for item in staged:
             normalized = _normalize_item(item, item["id"])
             session.setdefault("items", []).append(normalized)
             merged_items.append(normalized)
-            existing_ids.add(str(normalized["id"]))
 
         _sync_session_status(session)
     return {
@@ -1259,8 +1683,28 @@ def update_field(
 ) -> dict:
     """Update a field on an item, auto-recalculating priority_score if needed.
 
+    Only fields in the documented item schema may be set (see
+    ``_UPDATABLE_FIELDS``); the store is not a free-form bag.  ``id`` is
+    excluded outright — rewriting it into a collision makes an item permanently
+    unreachable, because every lookup then resolves to the other one.
+
     Returns the updated item dict.
+
+    Raises:
+        KeyError: no such item.
+        ValueError: unknown field, or a value the field rejects.
     """
+    if field not in _UPDATABLE_FIELDS:
+        if field == "id":
+            raise ValueError(
+                "'id' cannot be changed. An id collision makes one of the two "
+                "items unreachable, since every lookup resolves to the first."
+            )
+        raise ValueError(
+            f"Unknown item field: {field!r}. Updatable fields are: "
+            f"{', '.join(sorted(_UPDATABLE_FIELDS))}"
+        )
+
     with session_transaction(session_file) as session:
         item = _require_item(session, item_id)
         new_value: str | int | None = value
@@ -1295,10 +1739,18 @@ def update_field(
         }:
             if new_value in {"", "none", "null"}:
                 new_value = None
-        if field in _SCORE_COMPONENTS or field == "priority_score":
+        if field in _SCORE_COMPONENTS:
+            new_value = _validate_score_string(item_id, field, new_value)
+        elif field == "priority_score":
             if new_value is None:
                 raise ValueError(f"Field '{field}' cannot be null")
-            new_value = int(new_value)
+            try:
+                new_value = int(new_value)
+            except (TypeError, ValueError):
+                raise ValueError(
+                    f"item {item_id!r}: 'priority_score' must be a number "
+                    f"(got {type(new_value).__name__}: {new_value!r})"
+                ) from None
         item[field] = new_value
         if field in _SCORE_COMPONENTS:
             _recalc_priority(item)

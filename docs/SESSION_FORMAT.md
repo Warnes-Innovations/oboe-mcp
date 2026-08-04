@@ -87,15 +87,15 @@ Each entry in `items` is a JSON object with these fields.
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `id` | string or integer | yes | Item identifier. If omitted during creation, oboe-mcp assigns a sequential integer starting at 1. |
+| `id` | string or integer | yes | Item identifier, unique within the session. If omitted, oboe-mcp assigns the lowest free integer. Any other type — including `null` — is rejected on input; omit the field to have one assigned. Cannot be changed with `oboe_update_field`. |
 | `status` | string | yes | Lifecycle status: `pending`, `in_progress`, `deferred`, `blocked`, `completed`, or `skipped`. |
 | `title` | string | yes | Short label for the item. Defaults to `Item {id}`. |
 | `category` | string | yes | Category label. Defaults to `General`. |
 | `description` | string | yes | Free-text detail for the item. Defaults to the empty string. |
-| `urgency` | integer | yes | Priority input, default `3`. |
-| `importance` | integer | yes | Priority input, default `3`. |
-| `effort` | integer | yes | Priority input, default `3`. |
-| `dependencies` | integer | yes | Priority input, default `1`. |
+| `urgency` | integer | yes | Priority input, `0`-`5`, default `3`. See [Score components](#score-components). |
+| `importance` | integer | yes | Priority input, `0`-`5`, default `3`. See [Score components](#score-components). |
+| `effort` | integer | yes | Priority input, `0`-`5`, default `3`. Higher effort *lowers* the score. |
+| `dependencies` | integer | yes | Priority input, `0`-`5`, default `1`. Dependency **pressure** as a number — not a description of what the item depends on. |
 | `priority_score` | integer | yes | Derived score computed from the priority inputs. |
 | `resolution` | string or null | yes | Completion text set by `oboe_mark_complete`, otherwise `null`. |
 | `skip_reason` | string or null | yes | Skip reason set by `oboe_mark_skip`, otherwise `null`. |
@@ -106,6 +106,14 @@ Each entry in `items` is a JSON object with these fields.
 | `approved_at` | string or null | yes | ISO 8601 timestamp set when approval is recorded, otherwise `null`. |
 | `approval_note` | string or null | yes | Optional note explaining the approval decision. |
 | `child_session_resolution` | string | conditional | Optional resolution note copied back to the parent item when a child session is completed with a resolution string. |
+
+Item ids must be unique within a session. A duplicate is rejected on input by
+both `oboe_create` and `oboe_merge_items`, because every lookup resolves to the
+first match — a second item sharing an id can never be addressed, completed, or
+skipped, so the session could never reach `completed`.
+
+`oboe_update_field` accepts only the field names in the table above, and not
+`id`. An unrecognised field name is rejected rather than stored.
 
 Normalization defaults:
 
@@ -159,6 +167,24 @@ $$
 priority\_score = urgency + importance + (6 - effort) + dependencies
 $$
 
+### Score components
+
+All four components are integers. On input they must be numbers in the range
+**0-5**; a non-numeric or out-of-range value is rejected with an error naming
+the item and the field, and nothing is written.
+
+| Component | Default | Meaning |
+| --- | --- | --- |
+| `urgency` | 3 | How time-sensitive the item is. Higher sorts first. |
+| `importance` | 3 | How much the item matters. Higher sorts first. |
+| `effort` | 3 | How much work the item is. Higher effort *lowers* the score, because the formula uses `6 - effort`. |
+| `dependencies` | 1 | How much other work is waiting on this item — dependency **pressure**, expressed as a number. It is **not** a description of what the item depends on; that belongs in `description`. |
+
+The 0-5 range is enforced on input only. Session files written before the
+range existed may hold values outside it, and still load — the component type
+is checked on every read, but the range is not, so an older file does not
+become unreadable.
+
 Sorting rules used by the session helpers:
 
 - `oboe_next` prefers `in_progress` items first.
@@ -199,6 +225,8 @@ Index maintenance behavior:
 
 - Mutating session operations update the corresponding `index.json` entry.
 - Listing sessions can rebuild the entire index when the stored index is absent or invalid.
+- An index is *invalid* if any row is not an object carrying a string `file`, not merely if the top level is wrong. Such rows are never consumed; the index is rebuilt from the session files instead.
+- `oboe_trim_sessions` deletes only rows whose `file` is a bare, well-formed session filename that resolves inside the sessions directory. Anything else — a path, a traversal, a symlink out of the tree — is refused, reported under `rejected`, and left on disk. Its `deleted` list records what was actually removed, not what was selected.
 - `index.json` should be treated as a managed artifact, not hand-edited application state.
 
 ## Lifecycle Notes
