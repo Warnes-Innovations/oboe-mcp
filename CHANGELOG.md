@@ -71,6 +71,25 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
   name is checked against the documented item schema instead of being written
   through.
 
+- **A session holding both string and integer item ids crashed `oboe_next`
+  and `oboe_list_items`.** `id` is documented as "string or integer" and both
+  `oboe_create` and `oboe_merge_items` accept whatever the caller supplies, so
+  one session can legitimately hold `2` and `"phase-1"`. Both sort keys ended
+  in the raw id, so ordering them raised
+  `TypeError: '<' not supported between instances of 'int' and 'str'`.
+
+  It stayed latent because the id is only a *tie-break* on `priority_score`:
+  a mixed-id session works until two of its items happen to score the same,
+  and then every listing of it fails at once. `_id_sort_key` now gives a total
+  order — numeric ids first and in numeric order (a string that spells a
+  number counts as that number, matching how `merge_items` already picks the
+  next id), then the rest as text.
+
+- **The same class in `oboe-cli status`.** `category` is free-form and never
+  type-checked, so `sorted(categories.items())` crashed identically on a
+  session mixing `5` with `"General"` — taking down a read-only display. It
+  now sorts on `str()` of the key.
+
 - **`oboe-cli next --mark-in-progress` crashed on a session with no actionable
   items.** `_cmd_next` dereferenced `item["id"]` before `_print_next`'s
   `item is None` branch could report "No actionable items", so `get_next()`

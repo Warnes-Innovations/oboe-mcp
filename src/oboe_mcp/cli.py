@@ -190,7 +190,12 @@ def _print_session_status(stats: dict) -> None:
     categories = stats.get("categories", {})
     if categories:
         print("\nBy Category:")
-        for cat, counts in sorted(categories.items()):
+        # Sort on str(), not the raw key.  `category` is free-form caller
+        # input and is never type-checked, so one session can hold both 5 and
+        # "General" — and ordering those directly raises TypeError, taking
+        # down a read-only status display.  Same class as _id_sort_key.
+        by_name = sorted(categories.items(), key=lambda kv: str(kv[0]))
+        for cat, counts in by_name:
             cat_total = counts.get("total", 0)
             cat_done  = counts.get("completed", 0)
             cat_pct   = (100 * cat_done // cat_total) if cat_total else 0

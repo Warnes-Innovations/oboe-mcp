@@ -997,6 +997,38 @@ def session_status(session_file: Path) -> dict:
     }
 
 
+def _id_sort_key(item: dict) -> tuple[int, int, str]:
+    """Total order for item ids, which may be integers *or* strings.
+
+    ``id`` is documented as "string or integer", so one session can hold both
+    — and both `oboe_create` and `oboe_merge_items` accept whatever the caller
+    supplies.  Ordering on the raw value therefore raises
+    ``TypeError: '<' not supported between instances of 'int' and 'str'``.
+
+    The id is only ever a *tie-break* on ``priority_score``, which is what hid
+    this: a mixed-id session sorts fine until two of its items happen to score
+    the same, and then `oboe_next` and `oboe_list_items` both fail.
+
+    Numeric ids sort first, in numeric order; the rest follow as text.  A
+    string that spells a number is treated as that number, matching how
+    :func:`merge_items` already reads ``existing_ids`` when picking the next
+    integer id.
+    """
+    item_id = item.get("id", 0)
+    if isinstance(item_id, int) and not isinstance(item_id, bool):
+        return (0, item_id, "")
+    text = str(item_id)
+    try:
+        return (0, int(text), "")
+    except ValueError:
+        return (1, 0, text)
+
+
+def _priority_sort_key(item: dict) -> tuple[int, tuple[int, int, str]]:
+    """Highest priority_score first, lowest id as the tie-break."""
+    return (-item.get("priority_score", 0), _id_sort_key(item))
+
+
 def get_next(session_file: Path) -> dict | None:
     """Return the next item to work on.
 
@@ -1020,21 +1052,9 @@ def get_next(session_file: Path) -> dict | None:
     pending = [i for i in items if i.get("status") == "pending"]
     deferred = [i for i in items if i.get("status") == "deferred"]
 
-    if in_progress:
-        return sorted(
-            in_progress,
-            key=lambda x: (-x.get("priority_score", 0), x["id"]),
-        )[0]
-    if pending:
-        return sorted(
-            pending,
-            key=lambda x: (-x.get("priority_score", 0), x["id"]),
-        )[0]
-    if deferred:
-        return sorted(
-            deferred,
-            key=lambda x: (-x.get("priority_score", 0), x["id"]),
-        )[0]
+    for bucket in (in_progress, pending, deferred):
+        if bucket:
+            return sorted(bucket, key=_priority_sort_key)[0]
     return None
 
 
@@ -1048,10 +1068,7 @@ def list_items(
     items = session.get("items", [])
     if status_filter:
         items = [i for i in items if i.get("status") == status_filter]
-    return sorted(
-        items,
-        key=lambda x: (-x.get("priority_score", 0), x.get("id", 0)),
-    )
+    return sorted(items, key=_priority_sort_key)
 
 
 def get_item(session_file: Path, item_id: str | int) -> dict | None:
