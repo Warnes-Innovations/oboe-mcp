@@ -18,9 +18,10 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Annotated, Optional, Sequence
 
 from mcp.server.mcpserver import MCPServer
+from pydantic import Field
 
 from oboe_mcp.migrate import format_result, migrate_project
 from oboe_mcp.locking import (
@@ -59,6 +60,107 @@ from oboe_mcp.session import (
 
 mcp = MCPServer("oboe-mcp", instructions="One-By-One session management tools")
 
+
+# ---------------------------------------------------------------------------
+# Item input schema
+# ---------------------------------------------------------------------------
+#
+# Every tool that accepts caller-supplied items publishes this schema, so a
+# client can see that the four priority factors are NUMBERS before it sends a
+# sentence.  `dependencies` reads like "what this item depends on", and that
+# misreading is what issue #20 was: a descriptive string reached the
+# priority_score arithmetic and crashed it.
+#
+# The schema is advisory — MCP clients are not obliged to enforce it — so
+# session.validate_score_components() re-checks every value on arrival.
+
+_SCORE_FIELD_DOC = {
+    "urgency": "How time-sensitive this item is. Higher sorts first.",
+    "importance": "How much this item matters. Higher sorts first.",
+    "effort": (
+        "How much work this item is. Higher means MORE work and sorts "
+        "LATER (the score uses 6 - effort)."
+    ),
+    "dependencies": (
+        "How much other work is waiting on this item — dependency "
+        "PRESSURE, as a number. NOT a description of what this item "
+        "depends on. Higher sorts first."
+    ),
+}
+
+_SCORE_DEFAULTS = {
+    "urgency": 3, "importance": 3, "effort": 3, "dependencies": 1,
+}
+
+ITEM_INPUT_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "id": {
+            "type": ["string", "integer"],
+            "description": (
+                "Item identifier. Assigned sequentially from 1 if omitted."
+            ),
+        },
+        "title": {"type": "string", "description": "Short label."},
+        "description": {"type": "string", "description": "Free-text detail."},
+        "category": {"type": "string", "description": "Category label."},
+        "status": {
+            "type": "string",
+            "enum": [
+                "pending", "in_progress", "deferred",
+                "blocked", "completed", "skipped",
+            ],
+            "description": "Lifecycle status. Defaults to 'pending'.",
+        },
+        **{
+            field: {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 5,
+                "default": _SCORE_DEFAULTS[field],
+                "description": (
+                    f"Priority factor, integer 0-5 (default "
+                    f"{_SCORE_DEFAULTS[field]}). {doc}"
+                ),
+            }
+            for field, doc in _SCORE_FIELD_DOC.items()
+        },
+    },
+    "additionalProperties": True,
+}
+
+_ITEMS_DESCRIPTION = (
+    "List of item dicts. All fields are optional. The four priority factors "
+    "-- urgency, importance, effort, dependencies -- are NUMBERS in the range "
+    "0-5, not text; a non-numeric value is rejected naming the item and the "
+    "field. In particular 'dependencies' is a numeric measure of dependency "
+    "pressure, NOT a description of what the item depends on -- put that in "
+    "'description'. priority_score = urgency + importance + (6 - effort) + "
+    "dependencies."
+)
+
+
+def _inject_item_schema(schema: dict) -> None:
+    """Attach ITEM_INPUT_SCHEMA to a ``list[dict]`` parameter's schema.
+
+    Pydantic renders ``Optional[list[dict]]`` as an ``anyOf`` of an array
+    branch and a null branch, so the array branch is what needs the item
+    schema; a required ``list[dict]`` has no ``anyOf`` and is patched directly.
+    """
+    for branch in schema.get("anyOf", []):
+        if branch.get("type") == "array":
+            branch["items"] = ITEM_INPUT_SCHEMA
+    if schema.get("type") == "array":
+        schema["items"] = ITEM_INPUT_SCHEMA
+
+
+_ITEMS_FIELD = Field(
+    description=_ITEMS_DESCRIPTION,
+    json_schema_extra=_inject_item_schema,
+)
+
+ItemList = Annotated[list[dict], _ITEMS_FIELD]
+OptionalItemList = Annotated[Optional[list[dict]], _ITEMS_FIELD]
 
 # LockError is included so a contended session surfaces to the calling agent
 # as a normal tool error it can act on, rather than an unhandled exception.
@@ -138,7 +240,7 @@ def oboe_create(
     base_dir: str,
     title: str,
     description: str,
-    items: Optional[list[dict]] = None,
+    items: OptionalItemList = None,
     session_file: Optional[str] = None,
 ) -> str:
     """Create a new OBO session file and update index.json atomically.
@@ -147,9 +249,28 @@ def oboe_create(
         base_dir: Project root directory.
         title: Human-readable session title
         description: What this session is reviewing
-        items: List of item dicts. All priority fields are optional.
-               If omitted, the session is created with no items (items can
-               be added later with oboe_merge_items).
+        items: List of item dicts. Every field is optional; if items is
+               omitted entirely the session is created empty (items can be
+               added later with oboe_merge_items).
+
+               The four priority factors are NUMBERS in the range 0-5:
+
+                 urgency      integer 0-5, default 3 — time sensitivity
+                 importance   integer 0-5, default 3 — how much it matters
+                 effort       integer 0-5, default 3 — how much work it is
+                 dependencies integer 0-5, default 1 — how much other work
+                              is waiting on this item (dependency PRESSURE)
+
+               'dependencies' is a numeric score, NOT a description of what
+               the item depends on — that belongs in 'description'. A
+               non-numeric or out-of-range value is rejected with an error
+               naming the item and the field; nothing is written.
+
+               priority_score = urgency + importance + (6 - effort)
+                                + dependencies
+
+               Higher effort therefore lowers the score. Other accepted
+               fields: id, title, description, category, status.
         session_file: Optional explicit filename.
                       If omitted, generated from current timestamp.
     """
@@ -738,7 +859,7 @@ def oboe_create_child_session(
     parent_session_file: str,
     title: str,
     description: str,
-    items: Optional[list[dict]] = None,
+    items: OptionalItemList = None,
     base_dir: Optional[str] = None,
     parent_item_id: Optional[str] = None,
     session_file: Optional[str] = None,
@@ -749,8 +870,11 @@ def oboe_create_child_session(
         parent_session_file: Parent session path or filename
         title: Human-readable child session title
         description: What the child session is reviewing
-        items: Child session items. If omitted, the child session is created
-               with no items (items can be added later with oboe_merge_items).
+        items: Child session items, same shape as oboe_create. If omitted,
+               the child session is created with no items (items can be added
+               later with oboe_merge_items). The four priority factors
+               (urgency, importance, effort, dependencies) are NUMBERS in the
+               range 0-5, not text.
         base_dir: Required if session paths are bare filenames
         parent_item_id: Optional parent item to block while child is active
         session_file: Optional explicit child session filename
@@ -832,14 +956,20 @@ def oboe_complete_child_session(
 @mcp.tool()
 def oboe_merge_items(
     session_file: str,
-    items: list[dict],
+    items: ItemList,
     base_dir: Optional[str] = None,
 ) -> str:
     """Append new items to an existing session.
 
     Args:
         session_file: Absolute path or filename relative to the sessions dir.
-        items: List of item dicts to append to the session
+        items: List of item dicts to append. Same shape as oboe_create: the
+               four priority factors (urgency, importance, effort,
+               dependencies) are NUMBERS in the range 0-5, not text, and
+               'dependencies' measures dependency pressure rather than
+               naming what the item depends on. A bad value rejects the
+               whole batch, naming the item and the field; no items are
+               appended.
         base_dir: Required if session_file is a bare filename
     """
     try:

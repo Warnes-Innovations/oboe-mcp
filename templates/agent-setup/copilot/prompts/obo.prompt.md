@@ -22,7 +22,15 @@ Follow this workflow:
 1. Call `oboe_list_sessions` for the current workspace before extracting new items.
 2. If an incomplete session exists, ask whether to resume, merge, defer, replace, or stop.
 3. If creating a new session, extract discrete items from the current context.
-4. Assign priority factors for each item using urgency, importance, effort, and dependencies.
+4. Assign priority factors for each item. All four are **integers in the range 0-5**, never text:
+   - `urgency` (default 3) — how time-sensitive the item is.
+   - `importance` (default 3) — how much the item matters.
+   - `effort` (default 3) — how much work it is. Higher effort *lowers* the score.
+   - `dependencies` (default 1) — how much other work is waiting on this item, i.e. dependency **pressure**. This is **not** a description of what the item depends on; put that in `description`.
+
+   `priority_score = urgency + importance + (6 - effort) + dependencies`
+
+   A non-numeric or out-of-range factor is rejected with an error naming the item and the field, and nothing is written.
 5. Call `oboe_create` to persist the session. `items` is optional — if items are not yet known at session creation time, omit them and populate the session later with `oboe_merge_items`.
 6. If adding to an existing session, call `oboe_merge_items`.
 7. Present an executive summary before reviewing individual items. Include scope, item count, highest-impact items, important dependencies, and proposed order.

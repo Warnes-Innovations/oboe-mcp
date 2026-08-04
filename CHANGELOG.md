@@ -26,16 +26,25 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
   `unsupported operand type(s) for +: 'int' and 'str'` — naming neither the
   offending item nor the offending field.
 
-  **Validation at the input boundary.** `validate_score_components()` runs on
-  every caller-supplied item before anything is written, and rejects a bad
-  value with `item 'example': 'dependencies' must be a number 0-5 (got str:
-  '...')`. Applied in `create_session`, `merge_items`, `create_child_session`
-  and `update_field` — i.e. `oboe_create`, `oboe_merge_items`,
-  `oboe_create_child_session` and `oboe_update_field`. Validation happens
-  *before* the transaction opens, so a rejected batch writes nothing and
-  appends nothing. As a second layer, the arithmetic itself now checks each
-  component's type, so no route into it — including an old session file — can
-  produce a bare `TypeError`.
+  Two independent layers now close it:
+
+  - **Validation at the input boundary.** `validate_score_components()` runs
+    on every caller-supplied item before anything is written, and rejects a
+    bad value with `item 'example': 'dependencies' must be a number 0-5 (got
+    str: '...')`. Applied in `create_session`, `merge_items`,
+    `create_child_session` and `update_field` — i.e. `oboe_create`,
+    `oboe_merge_items`, `oboe_create_child_session` and `oboe_update_field`.
+    Validation happens *before* the transaction opens, so a rejected batch
+    writes nothing and appends nothing. As a second layer, the arithmetic
+    itself now checks each component's type, so no route into it — including
+    an old session file — can produce a bare `TypeError`.
+  - **The contract is documented.** The `items` JSON schema published by
+    `oboe_create`, `oboe_merge_items` and `oboe_create_child_session` now
+    types the four factors as `number` with `minimum: 0` / `maximum: 5`, and
+    states that `dependencies` is dependency *pressure* as a number rather
+    than a description of what the item depends on — the misreading its name
+    invites. The tool descriptions, `docs/SESSION_FORMAT.md`, and the
+    `/obo` workflow prompt say the same.
 
   Booleans, containers, `null`, fractional floats and — at the JSON tools —
   numeric strings are all rejected rather than coerced. `oboe_update_field`

@@ -50,7 +50,16 @@ If `oboe-mcp` is unavailable, stop and surface the blocker instead of silently f
 
 `priority_score = urgency + importance + (6 - effort) + dependencies`
 
-Defaults when not supplied: urgency=3, importance=3, effort=3, dependencies=1
+All four components are **integers in the range 0-5**. A non-numeric or
+out-of-range value is rejected with an error naming the item and the field;
+no session or item is written.
+
+| Component | Default | Meaning |
+| --- | --- | --- |
+| `urgency` | 3 | How time-sensitive the item is. Higher sorts first. |
+| `importance` | 3 | How much the item matters. Higher sorts first. |
+| `effort` | 3 | How much work it is. Higher effort *lowers* the score. |
+| `dependencies` | 1 | How much other work is waiting on this item — dependency **pressure**, as a number. **Not** a description of what the item depends on; that belongs in `description`. |
 
 ## Two State Axes
 
