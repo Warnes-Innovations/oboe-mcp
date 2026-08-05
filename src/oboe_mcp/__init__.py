@@ -9,4 +9,4 @@
 # Keep in step with `version` in pyproject.toml.  These drifted between 0.1.2
 # and 0.2.0 — the 0.2.0 release shipped reporting 0.1.2 here — so update both
 # together in every release.
-__version__ = "0.3.0"
+__version__ = "0.4.0"
