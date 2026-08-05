@@ -15,14 +15,65 @@ name: "Oboe Release Workflow"
 
 ## Version sources must move together
 
-Two files carry the version, and they have drifted before:
+**Three** files carry the version, and they have drifted twice:
 
 - `pyproject.toml` → `version`
 - `src/oboe_mcp/__init__.py` → `__version__`
+- `uv.lock` → the `version` of the `oboe-mcp` package entry itself (it is an
+  `editable = "."` source, so the lock records this project's own version)
 
-Update both in the same commit and confirm they agree before building. The 0.2.0
-release shipped reporting `__version__ == "0.1.2"` because only the first was
-bumped; nothing failed, and nobody noticed until 0.3.0.
+Update all three in the same commit and confirm they agree before building:
+
+```bash
+grep -m1 '^version' pyproject.toml
+grep -m1 '__version__' src/oboe_mcp/__init__.py
+grep -A 1 '^name = "oboe-mcp"' uv.lock
+```
+
+Regenerate the lock with `uv lock` rather than editing it by hand.
+
+This list said *two* files until 0.4.0, and that omission caused the second
+drift: 0.4.0 shipped with `uv.lock` still claiming `0.3.0`, because the
+instruction it was written to prevent did not name the third file. The
+published artifact was unaffected — `uv.lock` is not packaged, and the wheel
+correctly reported `0.4.0` — so it needed a follow-up commit rather than a
+re-release. The first drift was 0.2.0 shipping `__version__ == "0.1.2"` because
+only `pyproject.toml` was bumped; nothing failed, and nobody noticed until
+0.3.0.
+
+Both drifts share a cause worth naming: **the check was scoped to a list, and
+the list was incomplete.** So assert the three declarations are *equal to the
+new version* — do not merely look for the old one:
+
+```bash
+NEW=0.5.0   # the version you are bumping TO
+got=$( { grep -m1 '^version = ' pyproject.toml
+         grep -m1 '^__version__ = ' src/oboe_mcp/__init__.py
+         awk '/^name = "oboe-mcp"$/{f=1} f && /^version = /{print; exit}' uv.lock
+       } | grep -o '"[^"]*"' | tr -d '"' | sort -u )
+[ "$got" = "$NEW" ] || { echo "VERSION DRIFT: $got"; exit 1; }
+```
+
+**Assert equality, not the absence of the old string.** A sweep for the old
+version cannot see a drift that has already survived a release — which is what
+*both* recorded drifts did. At the 0.3.0 bump the old version was `0.2.0`, and
+the stale `__version__ = "0.1.2"` left over from the previous release matched
+nothing and stayed invisible. The same blindness covers a typo in the new value
+(`0.5.O`), which no absence-check can catch either.
+
+Two traps in writing this check, both hit on the first attempt:
+
+- **Do not grep `uv.lock` unanchored.** It contains ~38 `^version = ` lines,
+  one per dependency, so any common version number (`1.0.0`, `2.0.0`) produces
+  false positives that cannot be told from the real entry. The `awk` above
+  anchors to the `oboe-mcp` block. Anchoring with `grep -A 1` is *also* wrong:
+  it assumes `version` immediately follows `name`, and if uv ever inserts a
+  field between them the check silently reports clean — failing in the
+  direction of the defect.
+- **Do not match bare mentions.** A plain `git grep "$OLD"` returns a dozen
+  legitimate historical references (`migrate.py`, the README migration note,
+  `test_migrate.py`). A check that reports twelve false positives on a clean
+  tree is one people learn to skip at exactly the moment it matters.
 
 ## Verifying the artifact — always
 
@@ -113,6 +164,28 @@ attestations** to the artifacts (visible as `provenance` entries in
 Every action in that workflow is SHA-pinned because the publish jobs hold
 `id-token: write`.
 
+### There are TWO publish routes. Use one.
+
+`publish.yml` also triggers on `release: published`, and that path publishes to
+the real index too. It is not dead: v0.1.1, v0.1.2, v0.2.0 and v0.3.0 all
+shipped that way; only 0.4.0 used a dispatch.
+
+**The dispatch is canonical. Do not also create a GitHub release for the same
+version.** Doing both publishes twice: the second run 400s because the version
+already exists, and step "verify release workflow status" then reports FAILURE
+for a release that published correctly. A verification step that alarms on
+success is worse than no verification at all.
+
+If you prefer the release-event route for a given release, use it *instead* of
+the dispatch — not as well. Either way the tag must point at a commit on
+`main`; see the ordering below.
+
+The dispatch path is additionally guarded: `publish-pypi` requires
+`github.ref == 'refs/heads/main'`, so a dispatch from any other branch runs the
+build and then does nothing. That guard cannot apply to the release event,
+whose `github.ref` is a tag — which is the other reason to tag only after the
+merge.
+
 ## `main` does not accept a direct push
 
 `main` carries a ruleset requiring a pull request, so `git push origin main`
@@ -122,16 +195,31 @@ and `--no-verify` silences it without affecting the ruleset at all.
 
 A release therefore reaches `main` the same way everything else does:
 
+**Make the release commit on `devel`, not on `main`.** `main` cannot be pushed
+to, and a local `main` silently falls behind `origin/main` after every PR merge
+— so a release commit built there produces a non-fast-forward on the first
+push. This procedure said `git push origin main:refs/heads/devel` until that
+happened.
+
 ```bash
-git push origin main:refs/heads/devel     # the release commit onto devel
-git push origin vX.Y.Z                    # the tag can be pushed directly
+git switch devel && git pull --ff-only     # release commit belongs HERE
+# ... bump the three version files, update CHANGELOG, commit ...
+git push origin devel
 gh pr create --base main --head devel --title "release: X.Y.Z"
-# merge, then immediately:
-git fetch origin && git push origin origin/main:devel
+# merge the PR, then:
+git fetch origin
+git tag -a vX.Y.Z -m "Release X.Y.Z" origin/main   # tag the MERGED commit
+git push origin vX.Y.Z
+git push origin origin/main:devel                  # back-merge, immediately
 ```
 
-Because the tag can be pushed before the PR merges, it will briefly point at a
-commit no branch contains. Confirm reachability afterwards rather than assuming
+**Tag after the merge, not before.** Tagging first leaves the tag pointing at a
+commit no branch contains, and — because the `release: published` trigger also
+publishes (see below) — creating a GitHub release from such a tag would publish
+from an unreachable commit. Tagging `origin/main` after the merge removes that
+window entirely.
+
+Confirm reachability afterwards rather than assuming
 it, and confirm the tree that was tested is the tree that landed:
 
 ```bash

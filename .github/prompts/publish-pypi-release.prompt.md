@@ -10,7 +10,7 @@ Use the user's chat input as the release target and any special constraints, inc
 
 Workflow:
 1. Inspect the current repository state before making changes.
-2. Run the relevant tests first. Prefer the verified repo command `.venv/bin/python -m pytest tests/test_session.py tests/test_server.py` unless the user explicitly requests a different scope.
+2. Run the relevant tests first. Run the **whole** suite: `uv run pytest tests/ -q`. Do not run a named subset — naming `test_session.py` and `test_server.py` silently skipped `test_cli.py`, `test_concurrency.py` and `test_migrate.py` as those were added.
 3. If tests fail, fix release-blocking issues when they are clearly in scope. If anything needs user clarification, approval, or triage, start an OBO session and continue the discussion through `/obo` rather than asking ad hoc questions.
 4. Complete all necessary release-prep tasks for this repository. This includes version updates, changelog and README adjustments, packaging validation, and any other required release artifacts.
 5. Perform the publish flow needed for this repository, including git staging and commits, tags, pushes, GitHub release steps, and verification of the configured publish workflow, when those steps are required and the environment is authenticated.

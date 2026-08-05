@@ -56,7 +56,7 @@ Use the OBO MCP tools for all One-By-One review session work in this repository.
 ## Release Workflow
 
 - Treat testing, tagging, releasing, and publishing as a staged workflow: inspect repo state, run tests, complete release-prep edits, validate packaging, then handle remote release steps.
-- Prefer the verified release test command `.venv/bin/python -m pytest tests/test_session.py tests/test_server.py` unless the user explicitly requests a different scope.
+- Run the **whole** test suite (`uv run pytest tests/ -q`), not a named subset. Naming individual files silently skips test modules added later.
 - Keep release edits minimal and targeted. Do not revert unrelated dirty-worktree files unless the user explicitly asks.
 - Before any irreversible action, pause for confirmation even if the user's initial request already said to publish.
 - The required confirmation boundary includes each of these actions: `git push`, tag creation, GitHub release creation, and PyPI publication.

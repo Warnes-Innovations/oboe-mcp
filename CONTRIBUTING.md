@@ -137,11 +137,18 @@ was already requested in general terms:
 - GitHub release creation
 - PyPI publication
 
-Version numbers follow semantic versioning. **Two files carry the version and
-must be updated together** — `pyproject.toml` (`version`) and
-`src/oboe_mcp/__init__.py` (`__version__`). They have drifted before: 0.2.0
-shipped reporting `__version__ == "0.1.2"`. Update `CHANGELOG.md` in the same
-change as the bump.
+Version numbers follow semantic versioning. **Three files carry the version and
+must be updated together** — `pyproject.toml` (`version`),
+`src/oboe_mcp/__init__.py` (`__version__`), and `uv.lock` (the `oboe-mcp`
+package entry, since it is an `editable = "."` source). Regenerate the lock with
+`uv lock` rather than editing it. Update `CHANGELOG.md` in the same change.
+
+They have drifted twice. 0.2.0 shipped reporting `__version__ == "0.1.2"`, and
+0.4.0 shipped with `uv.lock` still claiming `0.3.0` — the second because this
+list said *two* files. Assert the three are **equal to the new version** rather
+than sweeping for the old one; a sweep cannot see a drift that already survived
+a release, which is what both of these did. The full check is in
+`.github/instructions/release-workflow.instructions.md`.
 
 ### Verify the artifact before tagging — always
 

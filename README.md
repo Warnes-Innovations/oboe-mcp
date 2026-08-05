@@ -811,4 +811,4 @@ Minimal rule set to reuse across agents:
 - Use `oboe_session_status` or `oboe_list_items` to inspect state.
 - Use `oboe_complete_session` when no actionable items remain.
 
-Session file paths, filename rules, JSON fields, status semantics, priority scoring, and the `index.json` summary format are documented in [docs/SESSION_FORMAT.md](/Users/warnes/src/oboe-mcp/docs/SESSION_FORMAT.md).
+Session file paths, filename rules, JSON fields, status semantics, priority scoring, and the `index.json` summary format are documented in [docs/SESSION_FORMAT.md](docs/SESSION_FORMAT.md).

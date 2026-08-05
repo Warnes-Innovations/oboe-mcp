@@ -80,7 +80,29 @@ jobs:
           repository-url: https://test.pypi.org/legacy/
 
   publish-pypi:
-    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.repository == 'pypi')
+    # A dispatch to the REAL index must come from `main`, and nothing else.
+    #
+    # Without this, the zero-argument path publishes the wrong tree. The default
+    # branch of this repository is `devel`, which carries no ruleset; both
+    # `gh workflow run` and the Actions "Run workflow" button default to the
+    # default branch; and `repository` now defaults to `pypi`. So a bare
+    # `gh workflow run publish.yml` would build `devel` and ship it as a real
+    # release.
+    #
+    # "PyPI rejects a version that already exists" does NOT cover this. That
+    # guards against publishing a DUPLICATE VERSION; the risk here is
+    # publishing the WRONG TREE, and the release procedure creates exactly the
+    # state where the two diverge — the version-bumped commit lands on `devel`
+    # first, before its PR to `main`. In that window the version is unpublished,
+    # so nothing rejects it.
+    #
+    # `github.ref` is a TAG ref for a `release` event, so the branch condition
+    # is applied only to the dispatch path.
+    if: >-
+      github.event_name == 'release'
+      || (github.event_name == 'workflow_dispatch'
+          && inputs.repository == 'pypi'
+          && github.ref == 'refs/heads/main')
     needs: build
     runs-on: ubuntu-latest
     permissions:

@@ -1,0 +1,89 @@
+# Copyright (C) 2026 Gregory R. Warnes
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Oboe MCP.
+# For commercial licensing, contact greg@warnes-innovations.com
+#
+# The suite had no CI at all until 0.4.0. `codeql.yml` runs on `devel` only, so
+# a `devel -> main` release pull request — the one that decides what gets
+# published — was gated by neither tests nor CodeQL. The PR route was presented
+# in the release instructions as the reason a direct push to `main` is
+# unnecessary, which invites reading it as a quality gate. It was not one.
+#
+# Triggers on BOTH branches deliberately: `main` is where releases are cut from,
+# and a workflow that only watches the development branch cannot tell you
+# whether the thing you are about to publish passes.
+
+name: test
+
+on:
+  push:
+    branches: [main, devel]
+  pull_request:
+    branches: [main, devel]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: pytest (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor and the ceiling of what pyproject declares
+        # (`requires-python = ">=3.11"`, classifiers through 3.12). Testing only
+        # one of them lets the other rot silently while the metadata keeps
+        # promising it.
+        python-version: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Run the whole suite
+        # The whole suite, never a named subset — naming files is how
+        # test_cli.py, test_concurrency.py and test_migrate.py went unrun for
+        # several releases after they were added.
+        run: uv run --frozen pytest tests/ -q
+
+  # A release is the moment the three version carriers must agree, and the one
+  # moment nobody re-checks by hand. 0.2.0 shipped reporting __version__
+  # "0.1.2"; 0.4.0 shipped with uv.lock still claiming "0.3.0". Both survived
+  # because the check was a human reading a list that was missing an entry.
+  versions:
+    name: version sources agree
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: pyproject.toml, __init__.py and uv.lock must all match
+        run: |
+          set -euo pipefail
+          got=$( { grep -m1 '^version = ' pyproject.toml
+                   grep -m1 '^__version__ = ' src/oboe_mcp/__init__.py
+                   awk '/^name = "oboe-mcp"$/{f=1} f && /^version = /{print; exit}' uv.lock
+                 } | grep -o '"[^"]*"' | tr -d '"' | sort -u )
+          if [ "$(printf '%s\n' "$got" | wc -l)" -ne 1 ]; then
+            echo "VERSION DRIFT across carriers:"
+            printf '  %s\n' $got
+            echo "pyproject.toml : $(grep -m1 '^version = ' pyproject.toml)"
+            echo "__init__.py    : $(grep -m1 '^__version__ = ' src/oboe_mcp/__init__.py)"
+            echo "uv.lock        : $(awk '/^name = "oboe-mcp"$/{f=1} f && /^version = /{print; exit}' uv.lock)"
+            exit 1
+          fi
+          echo "all three carriers agree: $got"
+
+      - name: uv.lock is in step with pyproject.toml
+        # Catches the other half: a dependency change committed without
+        # relocking. `uv run` silently rewrites the lock, so this drift is
+        # invisible to anyone who runs the suite locally first.
+        run: uv lock --check
