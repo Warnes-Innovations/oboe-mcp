@@ -16,6 +16,21 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-04
+
+This release is almost entirely defect repair, and the defects share a shape:
+an operation that failed *without saying so*. A bad input crashed the server
+with an interpreter error naming neither the item nor the field; a delete
+removed a file outside the directory it was given and reported it as a session;
+a session could be left paused with no tool able to resume it; and unhandled
+exceptions reached MCP clients raw.
+
+Several behaviours that were previously accepted are now **rejected**. Callers
+sending a numeric string for a score component to `oboe_create`, an unknown
+field name to `oboe_update_field`, or a duplicate item id will now receive an
+error instead of silent acceptance or a crash. `trim_sessions` gains a
+`rejected` key in its return value.
+
 ### Fixed
 
 - **A non-numeric priority factor crashed the server instead of being
