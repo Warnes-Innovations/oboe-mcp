@@ -77,6 +77,53 @@ Running it on every release regardless would spend real time on a step that
 usually reports nothing — and a check that habitually says nothing is one people
 learn to skip at exactly the moment it would have mattered.
 
+## Publish via the workflow, not a local upload
+
+Publication goes through `publish.yml`, dispatched against `main`:
+
+```bash
+gh workflow run publish.yml --ref main -f repository=pypi
+```
+
+**Pass `repository=pypi` explicitly. The input defaults to `testpypi`**, and
+the two publish jobs are gated on that value — a bare
+`gh workflow run publish.yml` therefore publishes to the wrong index and
+reports success while doing so.
+
+This is preferred over `twine upload` from a workstation for three reasons: it
+authenticates by OIDC rather than a local API token, it attaches **provenance
+attestations** to the artifacts (visible as `provenance` entries in
+`https://pypi.org/simple/oboe-mcp/`), and it leaves an auditable CI record.
+Every action in that workflow is SHA-pinned because the publish jobs hold
+`id-token: write`.
+
+## `main` does not accept a direct push
+
+`main` carries a ruleset requiring a pull request, so `git push origin main`
+is refused server-side with `push declined due to repository rule violations`.
+This is not the local `pre-push` hook — that is a separate, advisory reminder,
+and `--no-verify` silences it without affecting the ruleset at all.
+
+A release therefore reaches `main` the same way everything else does:
+
+```bash
+git push origin main:refs/heads/devel     # the release commit onto devel
+git push origin vX.Y.Z                    # the tag can be pushed directly
+gh pr create --base main --head devel --title "release: X.Y.Z"
+# merge, then immediately:
+git fetch origin && git push origin origin/main:devel
+```
+
+Because the tag can be pushed before the PR merges, it will briefly point at a
+commit no branch contains. Confirm reachability afterwards rather than assuming
+it, and confirm the tree that was tested is the tree that landed:
+
+```bash
+git merge-base --is-ancestor vX.Y.Z^{commit} origin/main && echo reachable
+[ "$(git rev-parse vX.Y.Z^{tree})" = "$(git rev-parse origin/main^{tree})" ] \
+  && echo "artifact matches main"
+```
+
 Trusted publisher registrations (both indexes) use:
 
 ```
