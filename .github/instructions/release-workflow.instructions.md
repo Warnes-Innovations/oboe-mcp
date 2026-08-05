@@ -85,10 +85,26 @@ Publication goes through `publish.yml`, dispatched against `main`:
 gh workflow run publish.yml --ref main -f repository=pypi
 ```
 
-**Pass `repository=pypi` explicitly. The input defaults to `testpypi`**, and
-the two publish jobs are gated on that value — a bare
-`gh workflow run publish.yml` therefore publishes to the wrong index and
-reports success while doing so.
+`repository` **defaults to `pypi`**, so `-f repository=pypi` is redundant. It is
+written out anyway in the command above, and worth writing out yourself: the
+two publish jobs are gated on that value, and a release is a bad moment to be
+relying on a default you have not looked at.
+
+For the dry run, the flag is **not** optional:
+
+```bash
+gh workflow run publish.yml --ref main -f repository=testpypi
+```
+
+This default was `testpypi` until 0.4.0, on the reasoning that a safe default
+protects against an accidental real publish. That had the failure backwards.
+Publishing is the common dispatch and the dry run is rare — see below, it is
+called for only when this workflow file itself has changed — so the old default
+made the ordinary action require an extra flag, and omitting it published to
+the wrong index **and reported success**. The accidental-publish risk it was
+guarding is in any case bounded: `pypa/gh-action-pypi-publish` does not set
+`skip-existing`, so PyPI rejects a version that already exists and a stray
+dispatch against an unchanged `main` fails instead of shipping.
 
 This is preferred over `twine upload` from a workstation for three reasons: it
 authenticates by OIDC rather than a local API token, it attaches **provenance
