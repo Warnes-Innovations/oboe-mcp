@@ -4,13 +4,27 @@ on:
   workflow_dispatch:
     inputs:
       repository:
-        description: Publish target
+        # Defaults to pypi, the case this workflow is actually dispatched for.
+        #
+        # It defaulted to testpypi as a safety measure, which had the failure
+        # backwards. Publishing is deliberate and rare; the TestPyPI dry run is
+        # rarer still — the release instructions call for it only when this file
+        # itself has changed. So the old default made the COMMON action require
+        # an extra flag, and omitting that flag published to the wrong index
+        # AND REPORTED SUCCESS. A silent wrong outcome is worse than a loud one.
+        #
+        # The risk this inverts is bounded: pypa/gh-action-pypi-publish does not
+        # set skip-existing, so PyPI rejects a version that already exists. A
+        # stray dispatch against an unchanged main therefore fails rather than
+        # shipping anything. The only way to publish by accident is to have
+        # already bumped the version — i.e. to have been mid-release anyway.
+        description: Publish target (pypi is the real index; testpypi is a dry run)
         required: true
-        default: testpypi
+        default: pypi
         type: choice
         options:
-          - testpypi
           - pypi
+          - testpypi
   release:
     types:
       - published
