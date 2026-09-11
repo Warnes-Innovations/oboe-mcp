@@ -1,8 +1,8 @@
 {
     "chat.promptFilesRecommendations": {
-        "publish-pypi-release": "resourceFilename == CHANGELOG.md || resourceFilename == README.md || resourceFilename == pyproject.toml || resourcePath =~ /.*\\.github\\/workflows\\/.*/ || resourcePath =~ /.*docs\\/PYPI_RELEASE\\.md$/",
-        "dry-run-pypi-release": "resourceFilename == CHANGELOG.md || resourceFilename == README.md || resourceFilename == pyproject.toml || resourcePath =~ /.*\\.github\\/workflows\\/.*/ || resourcePath =~ /.*docs\\/PYPI_RELEASE\\.md$/",
-        "triage-release-blockers": "resourceFilename == pyproject.toml || resourceFilename == CHANGELOG.md || resourcePath =~ /.*\\.github\\/workflows\\/.*/ || resourcePath =~ /.*tests\\/.*/ || resourcePath =~ /.*docs\\/PYPI_RELEASE\\.md$/"
+        "publish-pypi-release": "resourceFilename == CHANGELOG.md || resourceFilename == README.md || resourceFilename == pyproject.toml || resourcePath =~ /.*\\.github\\/workflows\\/.*/",
+        "dry-run-pypi-release": "resourceFilename == CHANGELOG.md || resourceFilename == README.md || resourceFilename == pyproject.toml || resourcePath =~ /.*\\.github\\/workflows\\/.*/",
+        "triage-release-blockers": "resourceFilename == pyproject.toml || resourceFilename == CHANGELOG.md || resourcePath =~ /.*\\.github\\/workflows\\/.*/ || resourcePath =~ /.*tests\\/.*/"
     },
     "chat.tools.terminal.autoApprove": {
         "/Users/warnes/src/oboe-mcp/.venv/bin/python": true
@@ -31,12 +31,19 @@
         "statusBar.background": "#94d5c9",
         "statusBar.foreground": "#15202b",
         "statusBarItem.hoverBackground": "#6fc7b7",
-        "statusBarItem.remoteBackground": "#94d5c9",
+        "statusBarItem.remoteBackground": "#ae5fc0",
         "statusBarItem.remoteForeground": "#15202b",
         "titleBar.activeBackground": "#94d5c9",
         "titleBar.activeForeground": "#15202b",
         "titleBar.inactiveBackground": "#94d5c999",
-        "titleBar.inactiveForeground": "#15202b99"
+        "titleBar.inactiveForeground": "#15202b99",
+        "activityBarTop.activeBackground": "#b9e3db",
+        "activityBarTop.background": "#b9e3db",
+        "activityBarTop.foreground": "#15202b",
+        "activityBarTop.inactiveForeground": "#15202b99",
+        "commandCenter.foreground": "#15202b",
+        "statusBar.debuggingBackground": "#94d5c9",
+        "statusBar.debuggingForeground": "#15202b"
     },
     "peacock.color": "#94d5c9"
 }
