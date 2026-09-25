@@ -116,11 +116,19 @@ def test_migrate_renames_session_directory(project):
     assert (project / ".github" / "oboe_sessions" / "index.json").is_file()
 
 
-def test_migrate_leaves_compatibility_symlink(project):
+def test_migrate_leaves_no_compatibility_symlink(project):
+    """Migration leaves ONE name, not two.
+
+    This assertion is inverted from what it was through 0.7.x, when
+    migration deliberately left ``.github/obo_sessions -> oboe_sessions``
+    so tooling hard-coding the old path kept working. That shim had no
+    expiry and became a second supported spelling; retired 2026-09-24.
+    """
     migrate_project(project)
     old = project / ".github" / "obo_sessions"
-    assert old.is_symlink()
-    assert (old / "index.json").is_file(), "symlink should resolve"
+    assert not old.exists(), "the obsolete name must not survive migration"
+    assert not old.is_symlink(), "no compatibility symlink should be created"
+    assert (project / ".github" / "oboe_sessions" / "index.json").is_file()
 
 
 def test_migrate_rewrites_instruction_files(project):
