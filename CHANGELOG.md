@@ -16,6 +16,26 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
 
 ## [Unreleased]
 
+### Changed
+
+- **Migration no longer leaves a `.github/obo_sessions -> oboe_sessions`
+  compatibility symlink, and this repository's own has been removed.**
+
+  Through 0.7.x, `migrate_project()` deliberately created that symlink so
+  tooling hard-coding the old path kept resolving. The shim had no expiry.
+  A back-compat alias with no removal date stops being transitional and
+  becomes a second supported spelling — which is exactly what a fleet-wide
+  sweep for the obsolete name then trips over in every repo this tool has
+  ever migrated, including this one.
+
+  **Breaking for projects mid-migration:** a project whose tooling still
+  writes to `.github/obo_sessions/` will now break at migration time rather
+  than silently continuing through an alias. That is the intended trade.
+
+  Projects migrated by an earlier release keep their existing symlink;
+  migration now reports it and leaves it, because removing another
+  project's file is not this tool's call.
+
 ## [0.4.0] - 2026-08-04
 
 This release is almost entirely defect repair, and the defects share a shape:

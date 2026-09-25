@@ -171,7 +171,25 @@ def _atomic_write_text(path: Path, text: str) -> None:
 
 
 def _migrate_sessions_dir(root: Path, result: MigrationResult) -> None:
-    """Rename the session directory and leave a compatibility symlink."""
+    """Rename the session directory.
+
+    NO COMPATIBILITY SYMLINK IS LEFT BEHIND, deliberately, and this is a
+    reversal: releases up to 0.7.x created ``.github/obo_sessions ->
+    oboe_sessions`` so tooling hard-coding the old path kept resolving.
+
+    Dr. Greg retired that on 2026-09-24. The shim had no expiry, and a
+    back-compat alias with no removal date stops being transitional and
+    becomes a second supported spelling — which is what a fleet-wide sweep
+    for the obsolete name then trips over in every migrated repo, including
+    this one. Migration should leave one name, not two.
+
+    Consequence to be aware of rather than surprised by: a project whose
+    tooling still writes to ``.github/obo_sessions/`` will stop resolving
+    after migration instead of silently continuing. That is the intended
+    trade — a loud break at migration time beats an alias nobody removes.
+    Projects migrated by an earlier release keep their existing symlink;
+    this only stops new ones being created.
+    """
     github = root / ".github"
     old_dir = github / "obo_sessions"
     new_dir = github / "oboe_sessions"
@@ -192,37 +210,11 @@ def _migrate_sessions_dir(root: Path, result: MigrationResult) -> None:
         )
 
     if old_is_symlink:
+        # A symlink left by an earlier release. Report it; removing another
+        # project's file is not this tool's call.
         result.notes.append(
-            "Symlink .github/obo_sessions -> oboe_sessions already exists"
-        )
-        return
-
-    # The directory may have just been renamed, so re-test rather than reusing
-    # the value read above.
-    will_exist = new_dir.is_dir() or (result.dry_run and old_dir.is_dir())
-    if not will_exist or old_dir.exists():
-        return
-
-    if result.dry_run:
-        result.actions.append(
-            "Would create symlink .github/obo_sessions -> oboe_sessions"
-        )
-        return
-
-    try:
-        os.symlink("oboe_sessions", old_dir)
-    except (OSError, NotImplementedError) as exc:
-        # Windows without Developer Mode cannot create symlinks unprivileged.
-        # This is a compatibility nicety, not the migration itself, so report
-        # it and carry on rather than aborting a half-done run.
-        result.notes.append(
-            f"Could not create .github/obo_sessions compatibility symlink "
-            f"({exc}). Tooling hard-coding the old path will not resolve; "
-            "update it to .github/oboe_sessions/."
-        )
-    else:
-        result.actions.append(
-            "Created symlink .github/obo_sessions -> oboe_sessions"
+            "Symlink .github/obo_sessions -> oboe_sessions exists from an "
+            "earlier migration; remove it when nothing reads the old path."
         )
 
 
