@@ -1,1 +1,0 @@
-../../.github/prompts/publish-pypi-release.prompt.md
