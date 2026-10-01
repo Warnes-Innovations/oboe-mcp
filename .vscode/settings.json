@@ -1,8 +1,6 @@
 {
     "chat.promptFilesRecommendations": {
-        "publish-pypi-release": "resourceFilename == CHANGELOG.md || resourceFilename == README.md || resourceFilename == pyproject.toml || resourcePath =~ /.*\\.github\\/workflows\\/.*/",
-        "dry-run-pypi-release": "resourceFilename == CHANGELOG.md || resourceFilename == README.md || resourceFilename == pyproject.toml || resourcePath =~ /.*\\.github\\/workflows\\/.*/",
-        "triage-release-blockers": "resourceFilename == pyproject.toml || resourceFilename == CHANGELOG.md || resourcePath =~ /.*\\.github\\/workflows\\/.*/ || resourcePath =~ /.*tests\\/.*/"
+        "publish": "resourceFilename == CHANGELOG.md || resourceFilename == README.md || resourceFilename == pyproject.toml || resourcePath =~ /.*\\.github\\/workflows\\/.*/"
     },
     "chat.tools.terminal.autoApprove": {
         "/Users/warnes/src/oboe-mcp/.venv/bin/python": true

@@ -1,1 +1,0 @@
-../../.github/prompts/triage-release-blockers.prompt.md
